@@ -1,18 +1,29 @@
 {
-  "name": "islem-mobile",
+  "name": "islem",
   "version": "1.0.0",
   "main": "index.js",
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.4",
+    "expo-asset": "~57.0.3",
+    "expo-audio": "~57.0.0",
+    "expo-localization": "~57.0.0",
     "expo-status-bar": "~57.0.0",
     "react": "19.2.3",
     "react-native": "0.86.0"
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "xcode": "xed ios/lem.xcworkspace",
+    "xcode:metro": "expo start --clear",
+    "check": "npx expo-doctor",
+    "check:ios": "expo export --platform ios --output-dir /private/tmp/islem-ios-export-check --no-bytecode --max-workers 1 --clear",
+    "eas:login": "npx eas-cli login",
+    "build:ios": "npx eas-cli build --platform ios --profile production",
+    "submit:ios": "npx eas-cli submit --platform ios --profile production"
   },
   "private": true
 }

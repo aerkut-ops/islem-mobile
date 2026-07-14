@@ -1,24 +1,86 @@
 {
   "expo": {
-    "name": "islem-mobile",
-    "slug": "islem-mobile",
+    "name": "İşlem",
+    "slug": "islem",
     "version": "1.0.0",
+    "description": "Verilen sayıları ve işlemleri kullanarak hedef sayılara ulaşmaya çalıştığın sade bir matematik oyunu.",
     "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#F7F8FB",
+    "primaryColor": "#1FA7A0",
+    "scheme": "islem",
     "ios": {
-      "supportsTablet": true
+      "bundleIdentifier": "com.aydin.islem",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleAllowMixedLocalizations": true
+      },
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "privacyManifests": {
+        "NSPrivacyTracking": false,
+        "NSPrivacyTrackingDomains": [],
+        "NSPrivacyCollectedDataTypes": []
+      }
     },
     "android": {
+      "package": "com.aydin.islem",
+      "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1FA7A0",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "locales": {
+      "tr": "./locales/tr.json",
+      "en": "./locales/en.json"
+    },
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      "expo-asset",
+      [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": [
+              "tr",
+              "en"
+            ],
+            "android": [
+              "tr",
+              "en"
+            ]
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0c09f907-48f9-405c-bc54-877f165297a3"
+      }
     }
   }
 }
