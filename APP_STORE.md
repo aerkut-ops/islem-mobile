@@ -69,7 +69,7 @@ App Store Connect için privacy label önerisi:
 - Third-party advertising: No
 - Analytics: No
 
-Not: App Store Connect'te Privacy Policy URL zorunludur. `store-web/privacy.html` destek e-postasıyla güncellendi; dosya HTTPS üzerinden herkese açık yayınlanmalı ve URL App Store Connect'e girilmelidir.
+Not: App Store Connect'te Privacy Policy URL zorunludur. `store-web/privacy.html` destek e-postasıyla güncellendi ve GitHub Pages üzerinden yayına hazırlandı.
 
 ## Gizlilik ve Destek Sayfaları
 
@@ -90,13 +90,12 @@ Bu sayfalarda placeholder metin kalmamalı. En azından şu bilgiler olmalı:
 
 Mevcut destek e-postası: islemappsupport@gmail.com
 
-En kolay yayınlama seçenekleri:
+Yayınlanan sayfalar:
 
-- Kişisel alan adı varsa bu iki HTML dosyasını orada yayınlamak
-- GitHub Pages, Netlify veya Vercel gibi statik site hizmetlerinden biriyle `store-web` klasörünü yayınlamak
-- Yayın sonrası iki URL'yi App Store Connect'e girmek:
-  - Privacy Policy URL: `https://.../privacy.html`
-  - Support URL: `https://.../support.html`
+- Privacy Policy URL: `https://aerkut-ops.github.io/islem-mobile/privacy.html`
+- Support URL: `https://aerkut-ops.github.io/islem-mobile/support.html`
+
+Alternatif olarak ileride kişisel alan adı kullanılırsa bu iki HTML dosyası orada da yayınlanabilir.
 
 İleride hesap, reklam, analitik, çevrim içi skor tablosu veya arkadaşla yarış sistemi eklenirse gizlilik politikası ve App Store privacy label cevapları yeniden güncellenmelidir.
 
@@ -154,8 +153,8 @@ npm run submit:ios
 - [ ] Görünmeyen veya geliştirme aşamasındaki özellikler App Store metninde vaat edilmedi
 - [x] Privacy policy sayfasındaki placeholder iletişim metni kaldırıldı
 - [x] Support sayfasındaki placeholder iletişim metni kaldırıldı
-- [ ] Privacy Policy URL HTTPS üzerinden erişilebilir
-- [ ] Support URL HTTPS üzerinden erişilebilir
+- [x] Privacy Policy URL HTTPS üzerinden erişilebilir
+- [x] Support URL HTTPS üzerinden erişilebilir
 - [ ] App Store privacy label cevapları uygulamanın mevcut veri kullanımıyla uyumlu
 - [ ] iPhone ekran görüntüleri hazır
 - [ ] iPad ekran görüntüleri hazır
