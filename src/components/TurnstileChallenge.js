@@ -37,7 +37,7 @@ export default function TurnstileChallenge({
     const query = new URLSearchParams({
       lang: language === 'tr' ? 'tr' : 'en',
       sitekey: TURNSTILE_SITE_KEY,
-      v: '20260723-2',
+      v: '20260724-2',
     });
     return `${TURNSTILE_URL}?${query.toString()}`;
   }, [language]);
