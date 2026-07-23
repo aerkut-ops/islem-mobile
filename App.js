@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Linking,
   PanResponder,
   Pressable,
   SafeAreaView,
@@ -15,6 +16,25 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import AccountPanel from './src/components/AccountPanel';
+import { loadPlayerCloudProgress } from './src/services/playerCloudData';
+import {
+  handleAuthCallback,
+  subscribeToAuthChanges,
+} from './src/services/authService';
+import {
+  buildGameResultPayload,
+  flushQueuedGameResults,
+  submitGameResult,
+} from './src/services/gameResultSync';
+import {
+  getCurrentSession,
+  isSupabaseConfigured,
+} from './src/services/supabaseClient';
+import {
+  getActiveStreak,
+  getMillisecondsUntilNextDay,
+} from './src/utils/streak';
 
 const ALL_OPERATIONS = ['+', '-', '×', '÷'];
 
@@ -112,6 +132,7 @@ const DIFFICULTIES = {
 
 const BEST_SCORE_PREFIX = 'islem-best';
 const PROGRESS_KEY = 'islem-progress-v1';
+const PROGRESS_OWNER_KEY_PREFIX = `${PROGRESS_KEY}:owner`;
 const MODE_NORMAL = 'normal';
 const MODE_DAILY = 'daily';
 const MODE_WEEKLY = 'weekly';
@@ -315,6 +336,56 @@ const STRINGS = {
       bestStreak: 'En iyi seri',
       weeklyScore: 'Bu hafta',
       homeSubtitle: 'Oyun modlarını göster',
+    },
+    account: {
+      icon: 'K',
+      eyebrow: 'Bulut hesabı',
+      title: 'Hesap',
+      close: 'Hesap ekranını kapat',
+      loading: 'Oturum kontrol ediliyor...',
+      signedIn: 'Oturum açık',
+      cloudReady: 'Bulut kaydı hazır',
+      cloudText: 'Yeni oyun sonuçların bu hesaba güvenle eşitlenir.',
+      cloudStats: 'Bulut istatistikleri',
+      statsLoading: 'İstatistikler yükleniyor...',
+      statsError: 'Bulut istatistikleri şu anda yüklenemedi.',
+      totalScore: 'Toplam puan',
+      completedGames: 'Tamamlanan oyun',
+      solvedTargets: 'Çözülen hedef',
+      currentStreak: 'Mevcut seri',
+      signOut: 'Çıkış yap',
+      deleteTitle: 'Hesabı sil',
+      deleteText: 'Hesabınla birlikte bulut skorların, serin ve profil bilgilerin kalıcı olarak silinir.',
+      deleteAccount: 'Hesabımı sil',
+      deleteConfirmText: 'Bu işlem geri alınamaz. Hesabını ve bulut verilerini kalıcı olarak silmek istediğine emin misin?',
+      cancel: 'Vazgeç',
+      deleteForever: 'Kalıcı olarak sil',
+      deleteError: 'Hesap silinemedi. İnternet bağlantını kontrol edip tekrar dene.',
+      guestTitle: 'İlerlemeni yanında taşı',
+      guestText: 'Skorlarını ve serini korumak için e-posta adresinle giriş yap veya ücretsiz hesap oluştur.',
+      emailLabel: 'E-posta',
+      emailPlaceholder: 'ornek@eposta.com',
+      magicLinkMethod: 'E-posta bağlantısı',
+      passwordMethod: 'Şifre',
+      magicLinkHelp: 'Şifre gerekmez. E-postana gelen güvenli bağlantıya dokunman yeterli.',
+      passwordLabel: 'Şifre',
+      passwordPlaceholder: 'Şifreni yaz',
+      passwordHelp: 'Daha önce şifre belirlenmiş hesaplar için.',
+      passwordContinue: 'Şifreyle giriş yap',
+      passwordRequired: 'Şifreni yaz.',
+      invalidCredentials: 'E-posta adresi veya şifre hatalı.',
+      continue: 'Giriş yap / Hesap oluştur',
+      linkSent: 'Bağlantı gönderildi. E-posta kutunu kontrol et.',
+      emailRateLimit: 'Çok kısa sürede fazla giriş e-postası istendi. Yaklaşık bir saat sonra tekrar dene.',
+      invalidEmail: 'Geçerli bir e-posta adresi yaz.',
+      genericError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
+      privacy: 'Misafir olarak oynamaya devam edebilirsin. Hesap yalnızca çevrimiçi özellikler için gerekir.',
+      privacyPolicy: 'Gizlilik Politikası',
+      privacyPolicyA11y: 'Gizlilik politikasını aç',
+      unavailableTitle: 'Hesap sistemi hazırlanıyor',
+      unavailableText: 'Oyun misafir olarak çalışmaya devam ediyor. Supabase bağlantısı tamamlandığında giriş burada açılacak.',
+      buttonA11y: 'Hesap ve profil ekranını aç',
+      guestShort: 'Misafir',
     },
     home: {
       title: 'İşlem',
@@ -600,6 +671,56 @@ const STRINGS = {
       weeklyScore: 'This week',
       homeSubtitle: 'Show game modes',
     },
+    account: {
+      icon: 'A',
+      eyebrow: 'Cloud account',
+      title: 'Account',
+      close: 'Close account screen',
+      loading: 'Checking session...',
+      signedIn: 'Signed in',
+      cloudReady: 'Cloud sync ready',
+      cloudText: 'New game results are safely synced to this account.',
+      cloudStats: 'Cloud statistics',
+      statsLoading: 'Loading statistics...',
+      statsError: 'Cloud statistics could not be loaded right now.',
+      totalScore: 'Total score',
+      completedGames: 'Completed games',
+      solvedTargets: 'Solved targets',
+      currentStreak: 'Current streak',
+      signOut: 'Sign out',
+      deleteTitle: 'Delete account',
+      deleteText: 'Your cloud scores, streak, and profile data will be permanently deleted with your account.',
+      deleteAccount: 'Delete my account',
+      deleteConfirmText: 'This cannot be undone. Are you sure you want to permanently delete your account and cloud data?',
+      cancel: 'Cancel',
+      deleteForever: 'Delete permanently',
+      deleteError: 'The account could not be deleted. Check your internet connection and try again.',
+      guestTitle: 'Keep your progress with you',
+      guestText: 'Sign in with your email or create a free account to protect your scores and streak.',
+      emailLabel: 'Email',
+      emailPlaceholder: 'name@example.com',
+      magicLinkMethod: 'Email link',
+      passwordMethod: 'Password',
+      magicLinkHelp: 'No password needed. Tap the secure link sent to your email.',
+      passwordLabel: 'Password',
+      passwordPlaceholder: 'Enter your password',
+      passwordHelp: 'For accounts that already have a password.',
+      passwordContinue: 'Sign in with password',
+      passwordRequired: 'Enter your password.',
+      invalidCredentials: 'The email address or password is incorrect.',
+      continue: 'Sign in / Create account',
+      linkSent: 'Link sent. Check your email inbox.',
+      emailRateLimit: 'Too many sign-in emails were requested. Please try again in about an hour.',
+      invalidEmail: 'Enter a valid email address.',
+      genericError: 'The action could not be completed. Please try again.',
+      privacy: 'You can keep playing as a guest. An account is only required for online features.',
+      privacyPolicy: 'Privacy Policy',
+      privacyPolicyA11y: 'Open the privacy policy',
+      unavailableTitle: 'Accounts are being prepared',
+      unavailableText: 'The game still works as a guest. Sign-in will become available here when Supabase is connected.',
+      buttonA11y: 'Open account and profile',
+      guestShort: 'Guest',
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Choose a mode',
@@ -753,10 +874,14 @@ export default function App() {
   const [challengeRoom, setChallengeRoom] = useState(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [streakVisible, setStreakVisible] = useState(false);
+  const [accountVisible, setAccountVisible] = useState(false);
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [hintUseCount, setHintUseCount] = useState(0);
   const tileRefs = useRef({});
   const rootRef = useRef(null);
   const rootOffsetRef = useRef({ x: 0, y: 0 });
@@ -792,8 +917,118 @@ export default function App() {
 
   useEffect(() => {
     loadBestScores().then(setBestScores);
-    loadProgress().then(setProgress);
+    flushQueuedGameResults().catch(() => {
+      // Cloud sync should never block app startup.
+    });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    getCurrentSession()
+      .then((currentSession) => {
+        if (active) {
+          setSession(currentSession);
+          setAuthLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuthLoading(false);
+        }
+      });
+
+    const unsubscribeAuth = subscribeToAuthChanges((nextSession) => {
+      if (active) {
+        setSession(nextSession);
+        setAuthLoading(false);
+      }
+    });
+
+    const processAuthUrl = (url) => {
+      handleAuthCallback(url)
+        .then((nextSession) => {
+          if (active && nextSession) {
+            setSession(nextSession);
+          }
+        })
+        .catch(() => {
+          // The account panel remains available for a fresh sign-in attempt.
+        });
+    };
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) {
+          processAuthUrl(url);
+        }
+      })
+      .catch(() => {});
+    const linkSubscription = Linking.addEventListener('url', ({ url }) => processAuthUrl(url));
+
+    return () => {
+      active = false;
+      unsubscribeAuth();
+      linkSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) {
+      return undefined;
+    }
+
+    let active = true;
+    const userId = session?.user?.id || null;
+
+    setProgress(normalizeProgress(DEFAULT_PROGRESS));
+    loadProgress(userId).then(async (storedProgress) => {
+      let nextProgress = storedProgress;
+
+      if (userId) {
+        try {
+          const cloudProgress = await loadPlayerCloudProgress(userId, getWeekKey());
+          nextProgress = mergeProgressWithCloud(storedProgress, cloudProgress);
+          await saveProgress(nextProgress, userId);
+        } catch {
+          // The account can keep using its last local snapshot while offline.
+        }
+      }
+
+      if (active) {
+        setProgress(nextProgress);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, session?.user?.id]);
+
+  useEffect(() => {
+    let timeoutId;
+
+    const refreshStreak = () => {
+      setProgress((currentProgress) => normalizeProgress(currentProgress));
+    };
+    const scheduleNextDayRefresh = () => {
+      timeoutId = setTimeout(() => {
+        refreshStreak();
+        scheduleNextDayRefresh();
+      }, getMillisecondsUntilNextDay());
+    };
+
+    scheduleNextDayRefresh();
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      flushQueuedGameResults().catch(() => {
+        // A later game or app launch will retry queued results.
+      });
+    }
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (game.difficulty !== 'paper') {
@@ -850,6 +1085,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -872,6 +1108,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -892,6 +1129,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -965,6 +1203,7 @@ export default function App() {
     const nextHint = randomItem(nextCandidates.length > 0 ? nextCandidates : candidates);
 
     setHint(nextHint);
+    setHintUseCount((currentCount) => currentCount + 1);
     setOperation(null);
     setOperationError('');
     setDragState(null);
@@ -1124,10 +1363,22 @@ export default function App() {
       const completion = recordGameCompletion(progress, finalGame, finalScore);
       saveBestScore(finalGame.difficulty, completion.summary.score, bestScores, setBestScores);
       setProgress(completion.progress);
-      saveProgress(completion.progress);
+      saveProgress(completion.progress, session?.user?.id || null);
       setCompletionSummary(completion.summary);
+      submitGameResult(
+        buildGameResultPayload({
+          game: finalGame,
+          score: finalScore,
+          awardedScore: completion.summary.score,
+          durationSeconds: getElapsedSeconds(timerStartRef.current),
+          hintUsedCount: hintUseCount,
+          language,
+        }),
+      ).catch(() => {
+        // Cloud sync should never block or interrupt local gameplay.
+      });
     }
-  }, [bestScores, game, operation, playSound, progress, t]);
+  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, session?.user?.id, t]);
 
   const swapOperationNumbers = useCallback(() => {
     setOperation((currentOperation) => {
@@ -1167,6 +1418,17 @@ export default function App() {
   const closeStreak = useCallback(() => {
     playSound('tap');
     setStreakVisible(false);
+  }, [playSound]);
+
+  const openAccount = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setAccountVisible(true);
+  }, [playSound]);
+
+  const closeAccount = useCallback(() => {
+    playSound('tap');
+    setAccountVisible(false);
   }, [playSound]);
 
   const closeCompletion = useCallback(() => {
@@ -1277,6 +1539,7 @@ export default function App() {
             onCreateChallengeRoom={createChallengeRoom}
             onFindChallengeOpponent={findChallengeOpponent}
             onOpenChallenge={openChallengePage}
+            onOpenAccount={openAccount}
             onOpenDaily={openDailyPage}
             onOpenSettings={openSettings}
             onOpenStreak={openStreak}
@@ -1290,6 +1553,7 @@ export default function App() {
             onStartTutorial={() => startNewGame('paper')}
             onStartWeekly={startWeeklyGame}
             progress={progress}
+            session={session}
             strings={t}
             todayDone={todayDone}
             weekKey={weekKey}
@@ -1514,9 +1778,11 @@ export default function App() {
           league={currentLeague}
           onClose={closeSettings}
           onGoHome={showHome}
+          onOpenAccount={openAccount}
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
           progress={progress}
+          session={session}
           soundEnabled={soundEnabled}
           strings={t}
           visible={settingsVisible}
@@ -1529,6 +1795,14 @@ export default function App() {
           strings={t}
           todayDone={todayDone}
           visible={streakVisible}
+        />
+        <AccountPanel
+          configured={isSupabaseConfigured}
+          loading={authLoading}
+          onClose={closeAccount}
+          session={session}
+          strings={t.account}
+          visible={accountVisible}
         />
       </View>
     </SafeAreaView>
@@ -2013,6 +2287,7 @@ function HomeScreen({
   onBackHome,
   onCreateChallengeRoom,
   onFindChallengeOpponent,
+  onOpenAccount,
   onOpenChallenge,
   onOpenDaily,
   onOpenSettings,
@@ -2027,6 +2302,7 @@ function HomeScreen({
   onStartTutorial,
   onStartWeekly,
   progress,
+  session,
   strings,
   todayDone,
   weekKey,
@@ -2040,8 +2316,10 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          session={session}
           strings={strings}
           title={strings.home.trainingPageTitle}
           todayDone={todayDone}
@@ -2075,8 +2353,10 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          session={session}
           strings={strings}
           title={strings.home.dailyPageTitle}
           todayDone={todayDone}
@@ -2110,8 +2390,10 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          session={session}
           strings={strings}
           title={strings.home.statsTitle}
           todayDone={todayDone}
@@ -2138,8 +2420,10 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          session={session}
           strings={strings}
           title={strings.home.weeklyPageTitle}
           todayDone={todayDone}
@@ -2181,8 +2465,10 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          session={session}
           strings={strings}
           title={strings.home.challengePageTitle}
           todayDone={todayDone}
@@ -2214,12 +2500,15 @@ function HomeScreen({
             {strings.home.title}
           </Text>
         </View>
-        <StreakBadge
-          completed={todayDone}
-          count={progress.streak.current}
-          onPress={onOpenStreak}
-          strings={strings}
-        />
+        <View style={styles.homeHeaderActions}>
+          <AccountButton onPress={onOpenAccount} session={session} strings={strings.account} />
+          <StreakBadge
+            completed={todayDone}
+            count={progress.streak.current}
+            onPress={onOpenStreak}
+            strings={strings}
+          />
+        </View>
       </View>
 
       <View style={styles.homeModeGrid}>
@@ -2260,7 +2549,7 @@ function HomeScreen({
   );
 }
 
-function HomePageHeader({ onBack, onOpenStreak, progress, strings, title, todayDone }) {
+function HomePageHeader({ onBack, onOpenAccount, onOpenStreak, progress, session, strings, title, todayDone }) {
   return (
     <View style={styles.homePageHeader}>
       <View style={styles.homePageTitleBlock}>
@@ -2276,13 +2565,35 @@ function HomePageHeader({ onBack, onOpenStreak, progress, strings, title, todayD
           {title}
         </Text>
       </View>
-      <StreakBadge
-        completed={todayDone}
-        count={progress.streak.current}
-        onPress={onOpenStreak}
-        strings={strings}
-      />
+      <View style={styles.homeHeaderActions}>
+        <AccountButton onPress={onOpenAccount} session={session} strings={strings.account} />
+        <StreakBadge
+          completed={todayDone}
+          count={progress.streak.current}
+          onPress={onOpenStreak}
+          strings={strings}
+        />
+      </View>
     </View>
+  );
+}
+
+function AccountButton({ onPress, session, strings }) {
+  const label = session?.user?.email?.slice(0, 1).toUpperCase() || strings.icon;
+
+  return (
+    <Pressable
+      accessibilityLabel={strings.buttonA11y}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.accountButton,
+        session && styles.accountButtonActive,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.accountButtonText, session && styles.accountButtonTextActive]}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -2491,9 +2802,11 @@ function SettingsPanel({
   league,
   onClose,
   onGoHome,
+  onOpenAccount,
   onSelectDifficulty,
   onToggleSound,
   progress,
+  session,
   soundEnabled,
   strings,
   visible,
@@ -2553,6 +2866,22 @@ function SettingsPanel({
               <View style={styles.settingCopy}>
                 <Text style={styles.settingTitle}>{strings.actions.home}</Text>
                 <Text style={styles.settingSubtitle}>{strings.settings.homeSubtitle}</Text>
+              </View>
+              <Text style={styles.settingValue}>→</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel={strings.account.buttonA11y}
+              accessibilityRole="button"
+              onPress={onOpenAccount}
+              style={({ pressed }) => [styles.settingRow, styles.settingRowGap, pressed && styles.pressed]}
+            >
+              <Text style={styles.settingIcon}>{strings.account.icon}</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>{strings.account.title}</Text>
+                <Text numberOfLines={1} style={styles.settingSubtitle}>
+                  {session?.user?.email || strings.account.guestShort}
+                </Text>
               </View>
               <Text style={styles.settingValue}>→</Text>
             </Pressable>
@@ -3345,18 +3674,31 @@ function bestScoreKey(difficulty) {
   return `${BEST_SCORE_PREFIX}-${difficulty}`;
 }
 
-async function loadProgress() {
+function progressStorageKey(userId) {
+  return `${PROGRESS_OWNER_KEY_PREFIX}:${userId ? `user:${userId}` : 'guest'}`;
+}
+
+async function loadProgress(userId = null) {
   try {
-    const raw = await AsyncStorage.getItem(PROGRESS_KEY);
+    const scopedKey = progressStorageKey(userId);
+    let raw = await AsyncStorage.getItem(scopedKey);
+
+    if (!raw && !userId) {
+      raw = await AsyncStorage.getItem(PROGRESS_KEY);
+      if (raw) {
+        await AsyncStorage.setItem(scopedKey, raw);
+      }
+    }
+
     return normalizeProgress(raw ? JSON.parse(raw) : DEFAULT_PROGRESS);
   } catch {
     return normalizeProgress(DEFAULT_PROGRESS);
   }
 }
 
-async function saveProgress(progress) {
+async function saveProgress(progress, userId = null) {
   try {
-    await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
+    await AsyncStorage.setItem(progressStorageKey(userId), JSON.stringify(progress));
   } catch {
     // Progress is nice to have; gameplay should continue if storage fails.
   }
@@ -3367,6 +3709,7 @@ function normalizeProgress(progress) {
   const completedWeeklyKeys = progress?.completedWeeklyKeys || {};
   const weeklyScores = progress?.weeklyScores || {};
   const currentWeeklyScore = Number(weeklyScores[currentWeekKey] || 0) || 0;
+  const streak = { ...DEFAULT_PROGRESS.streak, ...(progress?.streak || {}) };
 
   return {
     achievements: { ...DEFAULT_PROGRESS.achievements, ...(progress?.achievements || {}) },
@@ -3381,9 +3724,101 @@ function normalizeProgress(progress) {
     },
     completedWeeklyKeys: completedWeeklyKeys[currentWeekKey] ? { [currentWeekKey]: true } : {},
     stats: { ...DEFAULT_PROGRESS.stats, ...(progress?.stats || {}) },
-    streak: { ...DEFAULT_PROGRESS.streak, ...(progress?.streak || {}) },
+    streak: {
+      ...streak,
+      current: getActiveStreak(streak.current, streak.lastDailyDate),
+    },
     weeklyScores: { [currentWeekKey]: currentWeeklyScore },
   };
+}
+
+function mergeProgressWithCloud(localProgress, cloudProgress) {
+  const local = normalizeProgress(localProgress);
+  if (!cloudProgress) {
+    return local;
+  }
+
+  const cloudStats = cloudProgress.stats || {};
+  const cloudLastDate = cloudStats.last_streak_date || null;
+  const localLastDate = local.streak.lastDailyDate || null;
+  const cloudStreakIsNewer = Boolean(
+    cloudLastDate && (!localLastDate || cloudLastDate >= localLastDate),
+  );
+  const cloudCompletedDailyDates = {};
+  const cloudCompletedStreakDates = {};
+
+  (cloudProgress.dailyProgress || []).forEach((day) => {
+    if (day.daily_challenge_completed) {
+      cloudCompletedDailyDates[day.daily_challenge_key || day.date] = true;
+    }
+    if (day.streak_awarded) {
+      cloudCompletedStreakDates[day.date] = true;
+    }
+  });
+
+  const cloudAchievements = Object.fromEntries(
+    (cloudProgress.achievements || []).map(({ achievement_key: key }) => [key, true]),
+  );
+  const cloudWeekly = cloudProgress.weeklyScore;
+  const cloudCompletedWeeklyKeys =
+    cloudWeekly?.weekly_challenge_completed && cloudWeekly.week_key
+      ? { [cloudWeekly.week_key]: true }
+      : {};
+  const cloudWeeklyScores = cloudWeekly?.week_key
+    ? { [cloudWeekly.week_key]: Number(cloudWeekly.score || 0) }
+    : {};
+
+  return normalizeProgress({
+    ...local,
+    achievements: {
+      ...local.achievements,
+      ...cloudAchievements,
+    },
+    completedDailyDates: {
+      ...local.completedDailyDates,
+      ...cloudCompletedDailyDates,
+    },
+    completedStreakDates: {
+      ...local.completedStreakDates,
+      ...cloudCompletedStreakDates,
+    },
+    completedWeeklyKeys: {
+      ...local.completedWeeklyKeys,
+      ...cloudCompletedWeeklyKeys,
+    },
+    stats: {
+      ...local.stats,
+      bestScore: Math.max(local.stats.bestScore, Number(cloudStats.best_score || 0)),
+      gamesCompleted: Math.max(
+        local.stats.gamesCompleted,
+        Number(cloudStats.games_completed || 0),
+      ),
+      gamesPlayed: Math.max(local.stats.gamesPlayed, Number(cloudStats.games_played || 0)),
+      perfectGames: Math.max(local.stats.perfectGames, Number(cloudStats.perfect_games || 0)),
+      targetsSolved: Math.max(
+        local.stats.targetsSolved,
+        Number(cloudStats.targets_solved || 0),
+      ),
+      totalMoves: Math.max(local.stats.totalMoves, Number(cloudStats.total_moves || 0)),
+      totalScore: Math.max(local.stats.totalScore, Number(cloudStats.total_score || 0)),
+    },
+    streak: {
+      best: Math.max(local.streak.best, Number(cloudStats.best_streak || 0)),
+      current: cloudStreakIsNewer
+        ? Number(cloudStats.current_streak || 0)
+        : local.streak.current,
+      lastDailyDate: cloudStreakIsNewer ? cloudLastDate : localLastDate,
+    },
+    weeklyScores: {
+      ...local.weeklyScores,
+      ...Object.fromEntries(
+        Object.entries(cloudWeeklyScores).map(([key, score]) => [
+          key,
+          Math.max(local.weeklyScores[key] || 0, score),
+        ]),
+      ),
+    },
+  });
 }
 
 function recordGameCompletion(progress, game, score) {
@@ -3911,6 +4346,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  homeHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  accountButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  accountButtonActive: {
+    backgroundColor: '#d9f5f2',
+    borderColor: '#1fa7a0',
+  },
+  accountButtonText: {
+    color: '#68737d',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  accountButtonTextActive: {
+    color: '#147b76',
   },
   homeTitleBlock: {
     flex: 1,
