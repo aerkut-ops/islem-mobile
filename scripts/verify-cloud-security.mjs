@@ -239,6 +239,37 @@ async function verifyAnonymousIsolation({ supabaseUrl, publishableKey }) {
   }
 }
 
+async function verifyPasswordlessCaptchaRequired({
+  supabaseUrl,
+  publishableKey,
+}) {
+  const response = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+    method: 'POST',
+    headers: {
+      apikey: publishableKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email: ACCOUNTS[0].email,
+      create_user: true,
+      gotrue_meta_security: {},
+    }),
+  });
+
+  let payload = {};
+  try {
+    payload = await response.json();
+  } catch {
+    // The status assertion below still reports an unexpected response.
+  }
+
+  if (response.status !== 400 || payload.error_code !== 'captcha_failed') {
+    throw new Error(
+      'Passwordless sign-in accepted a request without CAPTCHA verification.',
+    );
+  }
+}
+
 async function main() {
   const fileEnv = parseEnvFile(new URL('../.env', import.meta.url));
   const supabaseUrl = requireValue(
@@ -258,6 +289,11 @@ async function main() {
     turnstileSiteKey === TURNSTILE_ALWAYS_PASS_TEST_KEY
       ? TURNSTILE_ALWAYS_PASS_TEST_TOKEN
       : null;
+
+  await verifyPasswordlessCaptchaRequired({ supabaseUrl, publishableKey });
+  console.log(
+    'PASS  Passwordless sign-in rejects requests without CAPTCHA verification.',
+  );
 
   const sessions = [];
   for (const account of ACCOUNTS) {
