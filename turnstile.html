@@ -79,6 +79,7 @@
       status.textContent = copy[language].loading;
       let failed = false;
       let scriptTimeout;
+      let turnstileAttempts = 0;
 
       function postToApp(type, payload = {}) {
         const message = JSON.stringify({ type, ...payload });
@@ -102,13 +103,18 @@
         postToApp("turnstile-error", { code: String(code) });
       }
 
-      window.renderTurnstile = function renderTurnstile() {
-        window.clearTimeout(scriptTimeout);
-        if (!sitekey || !window.turnstile) {
+      function renderWidgetWhenReady() {
+        if (!window.turnstile) {
+          turnstileAttempts += 1;
+          if (turnstileAttempts < 50) {
+            window.setTimeout(renderWidgetWhenReady, 100);
+            return;
+          }
           showError("widget-unavailable");
           return;
         }
 
+        window.clearTimeout(scriptTimeout);
         window.turnstile.render("#turnstile", {
           sitekey,
           language,
@@ -128,6 +134,14 @@
           }
         });
         postToApp("turnstile-ready");
+      }
+
+      window.renderTurnstile = function renderTurnstile() {
+        if (!sitekey) {
+          showError("missing-sitekey");
+          return;
+        }
+        renderWidgetWhenReady();
       };
 
       scriptTimeout = window.setTimeout(
