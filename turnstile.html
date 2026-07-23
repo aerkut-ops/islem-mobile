@@ -35,7 +35,7 @@
         width: 100%;
       }
 
-      #turnstile {
+      #turnstile-widget {
         min-height: 65px;
       }
 
@@ -54,7 +54,7 @@
   </head>
   <body>
     <main>
-      <div id="turnstile"></div>
+      <div id="turnstile-widget"></div>
       <p id="status">Güvenlik kontrolü hazırlanıyor...</p>
     </main>
     <script>
@@ -128,7 +128,7 @@
         renderStarted = true;
         try {
           window.clearTimeout(scriptTimeout);
-          window.turnstile.render("#turnstile", {
+          window.turnstile.render("#turnstile-widget", {
             sitekey,
             language,
             theme: "light",
