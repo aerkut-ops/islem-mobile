@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; frame-src 'self' https://challenges.cloudflare.com about:; connect-src 'self' https://challenges.cloudflare.com; img-src 'self' data: https://challenges.cloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    >
+    <title>İşlem güvenlik kontrolü</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        align-items: center;
+        background: #fff;
+        color: #20242a;
+        display: flex;
+        justify-content: center;
+        margin: 0;
+        min-height: 100vh;
+        padding: 12px;
+      }
+
+      main {
+        max-width: 360px;
+        text-align: center;
+        width: 100%;
+      }
+
+      #turnstile {
+        min-height: 65px;
+      }
+
+      #status {
+        color: #68737d;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.4;
+        margin: 10px 0 0;
+      }
+
+      .error {
+        color: #a23f3f;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="turnstile"></div>
+      <p id="status">Güvenlik kontrolü hazırlanıyor...</p>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const sitekey = params.get("sitekey") || "";
+      const language = params.get("lang") === "en" ? "en" : "tr";
+      const status = document.getElementById("status");
+      const copy = {
+        tr: {
+          loading: "Güvenlik kontrolü hazırlanıyor...",
+          ready: "Kontrol tamamlanıyor...",
+          error: "Kontrol yüklenemedi. Lütfen tekrar dene."
+        },
+        en: {
+          loading: "Preparing security check...",
+          ready: "Completing verification...",
+          error: "The security check could not load. Please try again."
+        }
+      };
+
+      document.documentElement.lang = language;
+      status.textContent = copy[language].loading;
+      let failed = false;
+      let scriptTimeout;
+      let turnstileAttempts = 0;
+
+      function postToApp(type, payload = {}) {
+        const message = JSON.stringify({ type, ...payload });
+        if (window.ReactNativeWebView?.postMessage) {
+          window.ReactNativeWebView.postMessage(message);
+          return;
+        }
+        if (window.webkit?.messageHandlers?.ReactNativeWebView?.postMessage) {
+          window.webkit.messageHandlers.ReactNativeWebView.postMessage(message);
+        }
+      }
+
+      function showError(code = "unknown") {
+        if (failed) {
+          return;
+        }
+        failed = true;
+        window.clearTimeout(scriptTimeout);
+        status.classList.add("error");
+        status.textContent = `${copy[language].error} (${code})`;
+        postToApp("turnstile-error", { code: String(code) });
+      }
+
+      function renderWidgetWhenReady() {
+        if (!window.turnstile) {
+          turnstileAttempts += 1;
+          if (turnstileAttempts < 50) {
+            window.setTimeout(renderWidgetWhenReady, 100);
+            return;
+          }
+          showError("widget-unavailable");
+          return;
+        }
+
+        window.clearTimeout(scriptTimeout);
+        window.turnstile.render("#turnstile", {
+          sitekey,
+          language,
+          theme: "light",
+          size: "flexible",
+          appearance: "interaction-only",
+          callback(token) {
+            status.textContent = copy[language].ready;
+            postToApp("turnstile-token", { token });
+          },
+          "error-callback"(code) {
+            showError(code || "challenge-error");
+          },
+          "expired-callback"() {
+            postToApp("turnstile-expired");
+            window.turnstile.reset();
+          }
+        });
+        postToApp("turnstile-ready");
+      }
+
+      window.renderTurnstile = function renderTurnstile() {
+        if (!sitekey) {
+          showError("missing-sitekey");
+          return;
+        }
+        renderWidgetWhenReady();
+      };
+
+      scriptTimeout = window.setTimeout(
+        () => showError("script-timeout"),
+        15000
+      );
+    </script>
+    <script
+      src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=renderTurnstile&render=explicit"
+      async
+      defer
+      onerror="showError('script-load')"
+    ></script>
+  </body>
+</html>

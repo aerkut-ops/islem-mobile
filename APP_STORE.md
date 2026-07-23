@@ -85,7 +85,7 @@ Not: App Store Connect'te Privacy Policy URL zorunludur. `store-web/privacy.html
 
 ## v1.1 Gizlilik Beyanı
 
-v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Veriler hesap girişi, skor/seri senkronizasyonu ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve kullanıcı takibi yapılmaz.
+v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Giriş sırasında bot ve otomatik kötüye kullanım koruması için Cloudflare Turnstile ağ ve cihaz/tarayıcı sinyallerini işleyebilir. Veriler hesap girişi, güvenlik, skor/seri senkronizasyonu ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve geliştirici tarafından uygulamalar arası kullanıcı takibi yapılmaz.
 
 v1.1 gönderilmeden önce App Store Connect > App Privacy altında "Yes, we collect data" seçilmeli ve en az şu veri türleri beyan edilmelidir:
 
@@ -93,7 +93,7 @@ v1.1 gönderilmeden önce App Store Connect > App Privacy altında "Yes, we coll
 - Identifiers > User ID: App Functionality; kullanıcıya bağlı; tracking yok
 - User Content > Gameplay Content: App Functionality; kullanıcıya bağlı; tracking yok
 
-Uygulama davranışı değişirse Product Interaction veya başka veri türlerinin gerekip gerekmediği yeniden kontrol edilmelidir. Apple, kaydedilmiş oyun ve oyun mantığı için Gameplay Content beyan edilmesini ister.
+Uygulama davranışı değişirse Product Interaction, Device ID, Diagnostics veya başka veri türlerinin gerekip gerekmediği yeniden kontrol edilmelidir. Cloudflare Turnstile üretimde etkinleştirilmeden önce Apple'ın App Privacy tanımlarıyla güvenlik amaçlı teknik veri işleme yeniden değerlendirilmelidir. Apple, kaydedilmiş oyun ve oyun mantığı için Gameplay Content beyan edilmesini ister.
 
 ## Gizlilik ve Destek Sayfaları
 

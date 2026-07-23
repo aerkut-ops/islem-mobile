@@ -12,6 +12,7 @@ Hesap oluşturulduğunda ve bulut özellikleri kullanıldığında aşağıdaki 
 - Uygulama dili ve isteğe bağlı profil bilgileri
 - Tamamlanan oyunların modu, zorluk seviyesi, puanı, işlem ve hedef sayıları, süre ve ipucu kullanımı
 - Toplam puan, seri, başarı, günlük ilerleme ve haftalık/aylık oyun özetleri
+- Giriş sırasında otomatik kötüye kullanımı önlemek için IP adresi, tarayıcı/cihaz özellikleri ve güvenlik kontrolü sonucu gibi teknik bilgiler
 
 Misafir olarak oynanan ve bir hesaba gönderilmeyen oyunlar yalnızca cihazda saklanır.
 
@@ -23,9 +24,9 @@ Bu veriler kullanıcı girişini sağlamak, oyun ilerlemesini cihazlar arasında
 
 Hesap ve özet istatistikler hesap aktif olduğu sürece saklanır. Ayrıntılı oyun sonuçları en fazla 90 gün tutulur; kalıcı istatistikler haftalık ve aylık özetlere aktarılabilir. Kullanıcı uygulamadaki Hesap ekranından hesabını sildiğinde aktif hesaba bağlı profil ve oyun verileri silinir. Hizmet sağlayıcının güvenlik günlükleri veya sınırlı süreli yedekleri kendi saklama süreleri sonunda kaldırılabilir.
 
-## Hizmet Sağlayıcı
+## Hizmet Sağlayıcılar
 
-Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. Veriler uygulamanın çalıştırılması amacıyla Supabase altyapısında işlenir. Veriler satılmaz ve reklam ağlarıyla paylaşılmaz.
+Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. Giriş ekranındaki otomatik istek ve bot koruması için Cloudflare Turnstile kullanılır. Turnstile, güvenlik kontrolünü gerçekleştirmek amacıyla ağ ve cihaz/tarayıcı sinyallerini Cloudflare altyapısında işleyebilir. Bu hizmetler uygulamanın çalıştırılması ve güvenliğinin korunması amacıyla kullanılır. Veriler satılmaz, reklam ağlarıyla paylaşılmaz ve geliştirici tarafından kullanıcıları uygulamalar arasında takip etmek için kullanılmaz.
 
 ## Cihazda Saklanan Bilgiler
 

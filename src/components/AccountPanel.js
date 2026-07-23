@@ -14,10 +14,22 @@ import {
 import { deleteCurrentAccount } from '../services/accountService';
 import { sendMagicLink, signInWithPassword, signOut } from '../services/authService';
 import { loadPlayerCloudStats } from '../services/playerCloudData';
+import TurnstileChallenge, {
+  getTurnstileDevelopmentToken,
+  isTurnstileConfigured,
+} from './TurnstileChallenge';
 
 const PRIVACY_POLICY_URL = 'https://aerkut-ops.github.io/islem-mobile/privacy.html';
 
-export default function AccountPanel({ configured, loading, onClose, session, strings, visible }) {
+export default function AccountPanel({
+  configured,
+  language,
+  loading,
+  onClose,
+  session,
+  strings,
+  visible,
+}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loginMethod, setLoginMethod] = useState('link');
@@ -28,10 +40,14 @@ export default function AccountPanel({ configured, loading, onClose, session, st
   const [cloudStatsError, setCloudStatsError] = useState('');
   const [cloudStatsLoading, setCloudStatsLoading] = useState(false);
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
+  const [captchaVisible, setCaptchaVisible] = useState(false);
+  const [pendingAuth, setPendingAuth] = useState(null);
 
   useEffect(() => {
     if (!visible) {
       setBusy(false);
+      setCaptchaVisible(false);
+      setPendingAuth(null);
       setMessage('');
       setErrorMessage('');
       setDeleteConfirmVisible(false);
@@ -81,31 +97,71 @@ export default function AccountPanel({ configured, loading, onClose, session, st
     return null;
   }
 
-  const submitEmail = async () => {
+  const performAuthRequest = async (request, captchaToken) => {
+    setBusy(true);
+    setMessage('');
+    setErrorMessage('');
+    try {
+      if (request.method === 'link') {
+        await sendMagicLink(request.email, captchaToken);
+        setMessage(strings.linkSent);
+      } else {
+        await signInWithPassword(request.email, request.password, captchaToken);
+        onClose();
+      }
+    } catch (error) {
+      if (request.method === 'link') {
+        const rateLimited =
+          error?.code === 'over_email_send_rate_limit' ||
+          error?.status === 429 ||
+          /rate limit/i.test(error?.message || '');
+        setErrorMessage(
+          rateLimited
+            ? strings.emailRateLimit
+            : error?.message || strings.genericError,
+        );
+      } else {
+        const invalidCredentials =
+          error?.code === 'invalid_credentials' ||
+          /invalid login credentials/i.test(error?.message || '');
+        setErrorMessage(
+          invalidCredentials ? strings.invalidCredentials : strings.genericError,
+        );
+      }
+    } finally {
+      setBusy(false);
+      setPendingAuth(null);
+    }
+  };
+
+  const startAuthRequest = (request) => {
+    setBusy(true);
+    setMessage('');
+    setErrorMessage('');
+    const developmentToken = getTurnstileDevelopmentToken();
+    if (developmentToken) {
+      performAuthRequest(request, developmentToken);
+      return;
+    }
+    if (isTurnstileConfigured) {
+      setPendingAuth(request);
+      setCaptchaVisible(true);
+      return;
+    }
+    performAuthRequest(request);
+  };
+
+  const submitEmail = () => {
     const normalizedEmail = email.trim();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       setErrorMessage(strings.invalidEmail);
       return;
     }
 
-    setBusy(true);
-    setMessage('');
-    setErrorMessage('');
-    try {
-      await sendMagicLink(normalizedEmail);
-      setMessage(strings.linkSent);
-    } catch (error) {
-      const rateLimited =
-        error?.code === 'over_email_send_rate_limit' ||
-        error?.status === 429 ||
-        /rate limit/i.test(error?.message || '');
-      setErrorMessage(rateLimited ? strings.emailRateLimit : error?.message || strings.genericError);
-    } finally {
-      setBusy(false);
-    }
+    startAuthRequest({ email: normalizedEmail, method: 'link' });
   };
 
-  const submitPassword = async () => {
+  const submitPassword = () => {
     const normalizedEmail = email.trim();
     if (!/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       setErrorMessage(strings.invalidEmail);
@@ -116,20 +172,38 @@ export default function AccountPanel({ configured, loading, onClose, session, st
       return;
     }
 
-    setBusy(true);
-    setMessage('');
-    setErrorMessage('');
-    try {
-      await signInWithPassword(normalizedEmail, password);
-      onClose();
-    } catch (error) {
-      const invalidCredentials =
-        error?.code === 'invalid_credentials' ||
-        /invalid login credentials/i.test(error?.message || '');
-      setErrorMessage(invalidCredentials ? strings.invalidCredentials : strings.genericError);
-    } finally {
+    startAuthRequest({
+      email: normalizedEmail,
+      method: 'password',
+      password,
+    });
+  };
+
+  const handleCaptchaToken = (captchaToken) => {
+    const request = pendingAuth;
+    setCaptchaVisible(false);
+    if (!request) {
       setBusy(false);
+      return;
     }
+    performAuthRequest(request, captchaToken);
+  };
+
+  const handleCaptchaCancel = () => {
+    setCaptchaVisible(false);
+    setPendingAuth(null);
+    setBusy(false);
+  };
+
+  const handleCaptchaError = (errorCode) => {
+    setCaptchaVisible(false);
+    setPendingAuth(null);
+    setBusy(false);
+    setErrorMessage(
+      __DEV__ && errorCode
+        ? `${strings.securityError} (${errorCode})`
+        : strings.securityError,
+    );
   };
 
   const handleSignOut = async () => {
@@ -422,6 +496,14 @@ export default function AccountPanel({ configured, loading, onClose, session, st
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
+      <TurnstileChallenge
+        language={language}
+        onCancel={handleCaptchaCancel}
+        onError={handleCaptchaError}
+        onToken={handleCaptchaToken}
+        strings={strings.security}
+        visible={captchaVisible}
+      />
     </View>
   );
 }

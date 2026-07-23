@@ -1,6 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
+const TURNSTILE_ALWAYS_PASS_TEST_KEY = '1x00000000000000000000AA';
+const TURNSTILE_ALWAYS_PASS_TEST_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
+
 const PRIVATE_TABLES = [
   { name: 'profiles', requireOwnRow: true },
   { name: 'player_stats', requireOwnRow: true },
@@ -85,7 +88,12 @@ function getKeychainPassword(account) {
   }
 }
 
-async function signIn({ supabaseUrl, publishableKey, account }) {
+async function signIn({
+  supabaseUrl,
+  publishableKey,
+  account,
+  captchaToken,
+}) {
   const password = getKeychainPassword(account);
   const response = await fetch(
     `${supabaseUrl}/auth/v1/token?grant_type=password`,
@@ -98,6 +106,13 @@ async function signIn({ supabaseUrl, publishableKey, account }) {
       body: JSON.stringify({
         email: account.email,
         password,
+        ...(captchaToken
+          ? {
+              gotrue_meta_security: {
+                captcha_token: captchaToken,
+              },
+            }
+          : {}),
       }),
     },
   );
@@ -236,11 +251,23 @@ async function main() {
       fileEnv.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
   );
+  const turnstileSiteKey =
+    process.env.EXPO_PUBLIC_TURNSTILE_SITE_KEY ??
+    fileEnv.EXPO_PUBLIC_TURNSTILE_SITE_KEY;
+  const captchaToken =
+    turnstileSiteKey === TURNSTILE_ALWAYS_PASS_TEST_KEY
+      ? TURNSTILE_ALWAYS_PASS_TEST_TOKEN
+      : null;
 
   const sessions = [];
   for (const account of ACCOUNTS) {
     sessions.push(
-      await signIn({ supabaseUrl, publishableKey, account }),
+      await signIn({
+        supabaseUrl,
+        publishableKey,
+        account,
+        captchaToken,
+      }),
     );
   }
 

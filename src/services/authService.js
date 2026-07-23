@@ -3,7 +3,7 @@ import { isSupabaseConfigured, supabase } from './supabaseClient';
 export const AUTH_REDIRECT_URL =
   process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL || 'islem://auth/callback';
 
-export async function sendMagicLink(email) {
+export async function sendMagicLink(email, captchaToken) {
   requireSupabase();
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -12,6 +12,7 @@ export async function sendMagicLink(email) {
     options: {
       emailRedirectTo: AUTH_REDIRECT_URL,
       shouldCreateUser: true,
+      captchaToken: captchaToken || undefined,
     },
   });
 
@@ -20,12 +21,15 @@ export async function sendMagicLink(email) {
   }
 }
 
-export async function signInWithPassword(email, password) {
+export async function signInWithPassword(email, password, captchaToken) {
   requireSupabase();
 
   const { data, error } = await supabase.auth.signInWithPassword({
     email: email.trim().toLowerCase(),
     password,
+    options: {
+      captchaToken: captchaToken || undefined,
+    },
   });
 
   if (error) {

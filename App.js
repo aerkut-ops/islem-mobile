@@ -4,12 +4,15 @@ import { getLocales } from 'expo-localization';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  SafeAreaProvider,
+  SafeAreaView,
+} from 'react-native-safe-area-context';
+import {
   Animated,
   Easing,
   Linking,
   PanResponder,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -379,6 +382,14 @@ const STRINGS = {
       emailRateLimit: 'Çok kısa sürede fazla giriş e-postası istendi. Yaklaşık bir saat sonra tekrar dene.',
       invalidEmail: 'Geçerli bir e-posta adresi yaz.',
       genericError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
+      security: {
+        eyebrow: 'Güvenli giriş',
+        title: 'Güvenlik kontrolü',
+        help: 'Devam etmek için kısa güvenlik kontrolünü tamamla.',
+        loading: 'Kontrol hazırlanıyor...',
+        cancel: 'Vazgeç',
+      },
+      securityError: 'Güvenlik kontrolü tamamlanamadı. Lütfen tekrar dene.',
       privacy: 'Misafir olarak oynamaya devam edebilirsin. Hesap yalnızca çevrimiçi özellikler için gerekir.',
       privacyPolicy: 'Gizlilik Politikası',
       privacyPolicyA11y: 'Gizlilik politikasını aç',
@@ -713,6 +724,14 @@ const STRINGS = {
       emailRateLimit: 'Too many sign-in emails were requested. Please try again in about an hour.',
       invalidEmail: 'Enter a valid email address.',
       genericError: 'The action could not be completed. Please try again.',
+      security: {
+        eyebrow: 'Secure sign-in',
+        title: 'Security check',
+        help: 'Complete the brief security check to continue.',
+        loading: 'Preparing verification...',
+        cancel: 'Cancel',
+      },
+      securityError: 'The security check could not be completed. Please try again.',
       privacy: 'You can keep playing as a guest. An account is only required for online features.',
       privacyPolicy: 'Privacy Policy',
       privacyPolicyA11y: 'Open the privacy policy',
@@ -1516,20 +1535,21 @@ export default function App() {
   }, [playSound]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <View
-        ref={rootRef}
-        onLayout={measureRoot}
-        style={[
-          styles.screen,
-          {
-            paddingHorizontal: metrics.screenPadding,
-            paddingBottom: metrics.screenPadding,
-            paddingTop: metrics.topPadding,
-          },
-        ]}
-      >
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View
+          ref={rootRef}
+          onLayout={measureRoot}
+          style={[
+            styles.screen,
+            {
+              paddingHorizontal: metrics.screenPadding,
+              paddingBottom: metrics.screenPadding,
+              paddingTop: metrics.topPadding,
+            },
+          ]}
+        >
         {homeVisible ? (
           <HomeScreen
             challengeRoom={challengeRoom}
@@ -1798,14 +1818,16 @@ export default function App() {
         />
         <AccountPanel
           configured={isSupabaseConfigured}
+          language={language}
           loading={authLoading}
           onClose={closeAccount}
           session={session}
           strings={t.account}
           visible={accountVisible}
         />
-      </View>
-    </SafeAreaView>
+        </View>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

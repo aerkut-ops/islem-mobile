@@ -20,14 +20,14 @@
         <p>Son güncelleme: 23 Temmuz 2026</p>
         <p>İşlem, verilen sayılar ve dört işlemle hedef sayılara ulaşmaya çalıştığınız bir matematik oyunudur. Oyun misafir olarak hesap oluşturmadan oynanabilir. Bulut senkronizasyonu ve çevrimiçi özellikler için isteğe bağlı hesap oluşturulabilir.</p>
         <h2>Toplanan Veriler</h2>
-        <p>Hesap oluşturulduğunda e-posta adresi, kullanıcı kimliği, uygulama dili, isteğe bağlı profil bilgileri ve tamamlanan oyunların puan, süre, işlem, hedef, zorluk ve ipucu bilgileri işlenir. Toplam puan, seri, başarılar ve haftalık/aylık oyun özetleri de hesaba bağlanabilir.</p>
+        <p>Hesap oluşturulduğunda e-posta adresi, kullanıcı kimliği, uygulama dili, isteğe bağlı profil bilgileri ve tamamlanan oyunların puan, süre, işlem, hedef, zorluk ve ipucu bilgileri işlenir. Toplam puan, seri, başarılar ve haftalık/aylık oyun özetleri de hesaba bağlanabilir. Giriş sırasında otomatik kötüye kullanımı önlemek için IP adresi, tarayıcı/cihaz özellikleri ve güvenlik kontrolü sonucu gibi teknik bilgiler işlenebilir.</p>
         <p>Misafir olarak oynanan ve bir hesaba gönderilmeyen oyunlar yalnızca cihazda saklanır.</p>
         <h2>Kullanım Amaçları</h2>
         <p>Veriler giriş işlemleri, bulut senkronizasyonu, skor ve seri istatistikleri, güvenlik ve çevrimiçi oyun özellikleri için kullanılır. Reklam, kullanıcı takibi veya üçüncü taraf pazarlaması için kullanılmaz.</p>
         <h2>Saklama Süresi</h2>
         <p>Hesap ve özet istatistikler hesap aktif olduğu sürece saklanır. Ayrıntılı oyun sonuçları en fazla 90 gün tutulur. Hesap uygulamadan silindiğinde aktif hesaba bağlı profil ve oyun verileri kaldırılır. Hizmet sağlayıcının güvenlik günlükleri veya sınırlı süreli yedekleri kendi saklama süreleri sonunda kaldırılabilir.</p>
-        <h2>Hizmet Sağlayıcı</h2>
-        <p>Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. Veriler uygulamanın çalıştırılması amacıyla Supabase altyapısında işlenir; satılmaz ve reklam ağlarıyla paylaşılmaz.</p>
+        <h2>Hizmet Sağlayıcılar</h2>
+        <p>Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. Giriş ekranındaki otomatik istek ve bot koruması için Cloudflare Turnstile kullanılır. Turnstile, güvenlik kontrolünü gerçekleştirmek amacıyla ağ ve cihaz/tarayıcı sinyallerini Cloudflare altyapısında işleyebilir. Bu hizmetler uygulamanın çalıştırılması ve güvenliğinin korunması amacıyla kullanılır. Veriler satılmaz, reklam ağlarıyla paylaşılmaz ve geliştirici tarafından kullanıcıları uygulamalar arasında takip etmek için kullanılmaz.</p>
         <h2>Cihazda Saklanan Bilgiler</h2>
         <p>Skor, seri, rozet, oyun ilerlemesi, ses tercihi ve oturum bilgileri uygulamanın çalışması için cihazda saklanabilir.</p>
         <h2>Çocukların Gizliliği</h2>
