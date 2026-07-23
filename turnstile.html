@@ -66,20 +66,24 @@
         tr: {
           loading: "Güvenlik kontrolü hazırlanıyor...",
           ready: "Kontrol tamamlanıyor...",
-          error: "Kontrol yüklenemedi. Lütfen tekrar dene."
+          error: "Kontrol yüklenemedi. Lütfen tekrar dene.",
+          missingSitekey: "Bu güvenlik sayfası uygulama içinden açılır."
         },
         en: {
           loading: "Preparing security check...",
           ready: "Completing verification...",
-          error: "The security check could not load. Please try again."
+          error: "The security check could not load. Please try again.",
+          missingSitekey: "This security page opens from inside the app."
         }
       };
 
       document.documentElement.lang = language;
       status.textContent = copy[language].loading;
       let failed = false;
+      let renderStarted = false;
       let scriptTimeout;
       let turnstileAttempts = 0;
+      const maxTurnstileAttempts = 120;
 
       function postToApp(type, payload = {}) {
         const message = JSON.stringify({ type, ...payload });
@@ -99,14 +103,21 @@
         failed = true;
         window.clearTimeout(scriptTimeout);
         status.classList.add("error");
-        status.textContent = `${copy[language].error} (${code})`;
+        status.textContent =
+          code === "missing-sitekey"
+            ? copy[language].missingSitekey
+            : `${copy[language].error} (${code})`;
         postToApp("turnstile-error", { code: String(code) });
       }
 
       function renderWidgetWhenReady() {
-        if (!window.turnstile) {
+        if (failed || renderStarted) {
+          return;
+        }
+
+        if (typeof window.turnstile?.render !== "function") {
           turnstileAttempts += 1;
-          if (turnstileAttempts < 50) {
+          if (turnstileAttempts < maxTurnstileAttempts) {
             window.setTimeout(renderWidgetWhenReady, 100);
             return;
           }
@@ -114,26 +125,37 @@
           return;
         }
 
-        window.clearTimeout(scriptTimeout);
-        window.turnstile.render("#turnstile", {
-          sitekey,
-          language,
-          theme: "light",
-          size: "flexible",
-          appearance: "interaction-only",
-          callback(token) {
-            status.textContent = copy[language].ready;
-            postToApp("turnstile-token", { token });
-          },
-          "error-callback"(code) {
-            showError(code || "challenge-error");
-          },
-          "expired-callback"() {
-            postToApp("turnstile-expired");
-            window.turnstile.reset();
+        renderStarted = true;
+        try {
+          window.clearTimeout(scriptTimeout);
+          window.turnstile.render("#turnstile", {
+            sitekey,
+            language,
+            theme: "light",
+            size: "flexible",
+            appearance: "interaction-only",
+            callback(token) {
+              status.textContent = copy[language].ready;
+              postToApp("turnstile-token", { token });
+            },
+            "error-callback"(code) {
+              showError(code || "challenge-error");
+            },
+            "expired-callback"() {
+              postToApp("turnstile-expired");
+              window.turnstile?.reset?.();
+            }
+          });
+          postToApp("turnstile-ready");
+        } catch {
+          renderStarted = false;
+          turnstileAttempts += 1;
+          if (turnstileAttempts < maxTurnstileAttempts) {
+            window.setTimeout(renderWidgetWhenReady, 100);
+            return;
           }
-        });
-        postToApp("turnstile-ready");
+          showError("render-unavailable");
+        }
       }
 
       window.renderTurnstile = function renderTurnstile() {
