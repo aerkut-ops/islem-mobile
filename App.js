@@ -1316,6 +1316,7 @@ export default function App() {
         return;
       }
 
+      setPushStatus('loading');
       try {
         const result = await syncPushRegistration(language);
         if (activeUserIdRef.current === userId) {

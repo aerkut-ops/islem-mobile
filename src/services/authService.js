@@ -1,5 +1,8 @@
 import { isSupabaseConfigured, supabase } from './supabaseClient';
-import { detachPushTokenBeforeSignOut } from './pushService';
+import {
+  detachPushTokenBeforeSignOut,
+  resumePushRegistrationAfterSignOut,
+} from './pushService';
 
 export const AUTH_REDIRECT_URL =
   process.env.EXPO_PUBLIC_AUTH_REDIRECT_URL || 'islem://auth/callback';
@@ -84,10 +87,14 @@ export function subscribeToAuthChanges(callback) {
 
 export async function signOut() {
   requireSupabase();
-  await detachPushTokenBeforeSignOut();
-  const { error } = await supabase.auth.signOut();
-  if (error) {
-    throw error;
+  try {
+    await detachPushTokenBeforeSignOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      throw error;
+    }
+  } finally {
+    resumePushRegistrationAfterSignOut();
   }
 }
 

@@ -9,11 +9,13 @@ import {
   normalizePushLocale,
   normalizePushRegistrationResult,
 } from './pushValidation.mjs';
+import { createPushRegistrationCoordinator } from './pushRegistrationCoordinator.mjs';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const PUSH_ENABLED_KEY = 'islem-push-enabled-v1';
 const PUSH_TOKEN_KEY = 'islem-expo-push-token-v1';
 const PUSH_CHANNEL_ID = 'social';
+const pushRegistrationCoordinator = createPushRegistrationCoordinator();
 
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
@@ -63,7 +65,7 @@ export async function enablePushNotifications(locale) {
     };
   }
 
-  return registerCurrentPushDevice(locale);
+  return runPushRegistration(locale);
 }
 
 export async function syncPushRegistration(locale) {
@@ -83,22 +85,32 @@ export async function syncPushRegistration(locale) {
   }
 
   await ensureAndroidChannel();
-  return registerCurrentPushDevice(locale);
+  return runPushRegistration(locale);
 }
 
 export async function disablePushNotifications() {
   requirePushService();
-  await detachStoredPushToken();
-  await AsyncStorage.setItem(PUSH_ENABLED_KEY, 'false');
-  await Notifications.setBadgeCountAsync(0).catch(() => false);
-  return { status: 'disabled' };
+  await pushRegistrationCoordinator.suspendAndDrain();
+  try {
+    await detachStoredPushToken();
+    await AsyncStorage.setItem(PUSH_ENABLED_KEY, 'false');
+    await Notifications.setBadgeCountAsync(0).catch(() => false);
+    return { status: 'disabled' };
+  } finally {
+    pushRegistrationCoordinator.resume();
+  }
 }
 
 export async function detachPushTokenBeforeSignOut() {
   if (!isSupabaseConfigured || !supabase) {
     return;
   }
+  await pushRegistrationCoordinator.suspendAndDrain();
   await detachStoredPushToken();
+}
+
+export function resumePushRegistrationAfterSignOut() {
+  pushRegistrationCoordinator.resume();
 }
 
 export function subscribeToPushTokenChanges(listener) {
@@ -138,7 +150,13 @@ export function subscribeToNotificationEvents({
   };
 }
 
-async function registerCurrentPushDevice(locale) {
+function runPushRegistration(locale) {
+  return pushRegistrationCoordinator.run((isCancelled) =>
+    registerCurrentPushDevice(locale, isCancelled),
+  );
+}
+
+async function registerCurrentPushDevice(locale, isCancelled) {
   const projectId = getExpoProjectId();
   if (!isExpectedExpoProject(projectId)) {
     throw makePushError('invalid_push_project');
@@ -153,6 +171,9 @@ async function registerCurrentPushDevice(locale) {
   );
   if (!token) {
     throw makePushError('invalid_expo_push_token');
+  }
+  if (isCancelled()) {
+    return { status: 'disabled' };
   }
 
   const { data, error } = await supabase.rpc('register_push_device', {
@@ -170,6 +191,9 @@ async function registerCurrentPushDevice(locale) {
   }
 
   await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
+  if (isCancelled()) {
+    return { status: 'disabled' };
+  }
   return { status: 'enabled' };
 }
 
