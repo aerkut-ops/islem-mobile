@@ -1,6 +1,6 @@
 # İşlem Gizlilik Politikası
 
-Son güncelleme: 23 Temmuz 2026
+Son güncelleme: 30 Temmuz 2026
 
 İşlem, verilen sayılar ve dört işlemle hedef sayılara ulaşmaya çalıştığınız bir matematik oyunudur. Oyun misafir olarak hesap oluşturmadan oynanabilir. Bulut senkronizasyonu ve çevrimiçi özelliklerden yararlanmak isteyen kullanıcılar isteğe bağlı bir hesap oluşturabilir.
 
@@ -12,6 +12,7 @@ Hesap oluşturulduğunda ve bulut özellikleri kullanıldığında aşağıdaki 
 - Uygulama dili ve isteğe bağlı profil bilgileri
 - Tamamlanan oyunların modu, zorluk seviyesi, puanı, işlem ve hedef sayıları, süre ve ipucu kullanımı
 - Toplam puan, seri, başarı, günlük ilerleme ve haftalık/aylık oyun özetleri
+- Bildirimler kullanıcı tarafından açılırsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve bildirim teslim durumu
 - Giriş sırasında otomatik kötüye kullanımı önlemek için IP adresi, tarayıcı/cihaz özellikleri ve güvenlik kontrolü sonucu gibi teknik bilgiler
 
 Misafir olarak oynanan ve bir hesaba gönderilmeyen oyunlar yalnızca cihazda saklanır.
@@ -22,15 +23,15 @@ Bu veriler kullanıcı girişini sağlamak, oyun ilerlemesini cihazlar arasında
 
 ## Saklama Süresi
 
-Hesap ve özet istatistikler hesap aktif olduğu sürece saklanır. Ayrıntılı oyun sonuçları en fazla 90 gün tutulur; kalıcı istatistikler haftalık ve aylık özetlere aktarılabilir. Kullanıcı uygulamadaki Hesap ekranından hesabını sildiğinde aktif hesaba bağlı profil ve oyun verileri silinir. Hizmet sağlayıcının güvenlik günlükleri veya sınırlı süreli yedekleri kendi saklama süreleri sonunda kaldırılabilir.
+Hesap ve özet istatistikler hesap aktif olduğu sürece saklanır. Ayrıntılı oyun sonuçları en fazla 90 gün tutulur; kalıcı istatistikler haftalık ve aylık özetlere aktarılabilir. Bildirim teslim kayıtları en fazla 30 gün tutulur. Kullanıcı uygulamadaki Hesap ekranından hesabını sildiğinde aktif hesaba bağlı profil, oyun ve bildirim cihazı verileri silinir. Hizmet sağlayıcının güvenlik günlükleri veya sınırlı süreli yedekleri kendi saklama süreleri sonunda kaldırılabilir.
 
 ## Hizmet Sağlayıcılar
 
-Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. Giriş ekranındaki otomatik istek ve bot koruması için Cloudflare Turnstile kullanılır. Turnstile, güvenlik kontrolünü gerçekleştirmek amacıyla ağ ve cihaz/tarayıcı sinyallerini Cloudflare altyapısında işleyebilir. Bu hizmetler uygulamanın çalıştırılması ve güvenliğinin korunması amacıyla kullanılır. Veriler satılmaz, reklam ağlarıyla paylaşılmaz ve geliştirici tarafından kullanıcıları uygulamalar arasında takip etmek için kullanılmaz.
+Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. İsteğe bağlı uzaktan bildirimlerin teslimi için Expo Push Service ve Apple Push Notification service kullanılabilir. Giriş ekranındaki otomatik istek ve bot koruması için Cloudflare Turnstile kullanılır. Turnstile, güvenlik kontrolünü gerçekleştirmek amacıyla ağ ve cihaz/tarayıcı sinyallerini Cloudflare altyapısında işleyebilir. Bu hizmetler uygulamanın çalıştırılması ve güvenliğinin korunması amacıyla kullanılır. Veriler satılmaz, reklam ağlarıyla paylaşılmaz ve geliştirici tarafından kullanıcıları uygulamalar arasında takip etmek için kullanılmaz.
 
 ## Cihazda Saklanan Bilgiler
 
-Skor, seri, rozet, oyun ilerlemesi, ses tercihi ve oturum bilgileri uygulamanın çalışması için cihazda saklanabilir. Oturum bilgisi güvenli girişin devam etmesini sağlar.
+Skor, seri, rozet, oyun ilerlemesi, ses ve bildirim tercihi ile oturum bilgileri uygulamanın çalışması için cihazda saklanabilir. Oturum bilgisi güvenli girişin devam etmesini sağlar.
 
 ## Çocukların Gizliliği
 

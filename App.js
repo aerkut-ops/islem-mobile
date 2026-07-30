@@ -8,6 +8,7 @@ import {
   SafeAreaView,
 } from 'react-native-safe-area-context';
 import {
+  ActivityIndicator,
   Animated,
   AppState,
   Easing,
@@ -24,9 +25,19 @@ import AccountPanel from './src/components/AccountPanel';
 import FriendsPanel from './src/components/FriendsPanel';
 import NotificationPanel from './src/components/NotificationPanel';
 import { loadIncomingFriendRequestCount } from './src/services/friendService';
-import { loadUnreadNotificationCount } from './src/services/notificationService';
+import {
+  loadUnreadNotificationCount,
+  markNotificationsRead,
+} from './src/services/notificationService';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
 import { loadOwnProfile } from './src/services/profileService';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  subscribeToNotificationEvents,
+  subscribeToPushTokenChanges,
+  syncPushRegistration,
+} from './src/services/pushService';
 import {
   handleAuthCallback,
   subscribeToAuthChanges,
@@ -533,6 +544,13 @@ const STRINGS = {
       minutesAgo: (count) => `${count} dk önce`,
       hoursAgo: (count) => `${count} sa önce`,
       daysAgo: (count) => `${count} gün önce`,
+      settingsTitle: 'Bildirimler',
+      settingsEnabled: 'Arkadaşlık bildirimleri açık.',
+      settingsDisabled: 'İstek ve kabul bildirimlerini aç.',
+      settingsDenied: 'Telefon ayarlarından bildirim izni ver.',
+      settingsAccount: 'Bildirimler için hesabına giriş yap.',
+      settingsUnavailable: 'Bu cihazda bildirim kullanılamıyor.',
+      settingsError: 'Bildirim ayarı güncellenemedi.',
     },
     home: {
       title: 'İşlem',
@@ -1002,6 +1020,13 @@ const STRINGS = {
       minutesAgo: (count) => `${count}m ago`,
       hoursAgo: (count) => `${count}h ago`,
       daysAgo: (count) => `${count}d ago`,
+      settingsTitle: 'Notifications',
+      settingsEnabled: 'Friend notifications are on.',
+      settingsDisabled: 'Turn on request and acceptance alerts.',
+      settingsDenied: 'Allow notifications in device settings.',
+      settingsAccount: 'Sign in to use notifications.',
+      settingsUnavailable: 'Notifications are unavailable on this device.',
+      settingsError: 'The notification setting could not be updated.',
     },
     home: {
       title: 'İşlem',
@@ -1171,6 +1196,8 @@ export default function App() {
   const [incomingFriendRequestCount, setIncomingFriendRequestCount] =
     useState(0);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pushStatus, setPushStatus] = useState('loading');
+  const [pushBusy, setPushBusy] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -1282,6 +1309,27 @@ export default function App() {
     }
   }, []);
 
+  const refreshPushRegistration = useCallback(
+    async (userId) => {
+      if (!userId || activeUserIdRef.current !== userId) {
+        setPushStatus('account_required');
+        return;
+      }
+
+      try {
+        const result = await syncPushRegistration(language);
+        if (activeUserIdRef.current === userId) {
+          setPushStatus(result.status);
+        }
+      } catch {
+        if (activeUserIdRef.current === userId) {
+          setPushStatus('error');
+        }
+      }
+    },
+    [language],
+  );
+
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -1299,6 +1347,18 @@ export default function App() {
     }
     refreshUnreadNotificationCount(userId);
   }, [refreshUnreadNotificationCount, session?.user?.id]);
+
+  useEffect(() => {
+    if (authLoading) {
+      setPushStatus('loading');
+      return;
+    }
+    refreshPushRegistration(session?.user?.id || null);
+  }, [
+    authLoading,
+    refreshPushRegistration,
+    session?.user?.id,
+  ]);
 
   const handleIncomingFriendRequestCountChange = useCallback(
     (count) => {
@@ -1549,6 +1609,7 @@ export default function App() {
       refreshCloudProgress(userId);
       refreshIncomingFriendRequestCount(userId);
       refreshUnreadNotificationCount(userId);
+      refreshPushRegistration(userId);
     };
 
     const appStateSubscription = AppState.addEventListener(
@@ -1564,6 +1625,7 @@ export default function App() {
   }, [
     refreshCloudProgress,
     refreshIncomingFriendRequestCount,
+    refreshPushRegistration,
     refreshUnreadNotificationCount,
     session?.user?.id,
   ]);
@@ -2004,6 +2066,42 @@ export default function App() {
     setNotificationsVisible(false);
   }, [playSound]);
 
+  const togglePushNotifications = useCallback(async () => {
+    if (pushBusy) {
+      return;
+    }
+    if (!session?.user?.id) {
+      openAccount();
+      return;
+    }
+    if (pushStatus === 'denied') {
+      await Linking.openSettings().catch(() => {});
+      return;
+    }
+    if (pushStatus === 'unavailable') {
+      return;
+    }
+
+    setPushBusy(true);
+    try {
+      const result =
+        pushStatus === 'enabled'
+          ? await disablePushNotifications()
+          : await enablePushNotifications(language);
+      setPushStatus(result.status);
+    } catch {
+      setPushStatus('error');
+    } finally {
+      setPushBusy(false);
+    }
+  }, [
+    language,
+    openAccount,
+    pushBusy,
+    pushStatus,
+    session?.user?.id,
+  ]);
+
   const closeCompletion = useCallback(() => {
     playSound('tap');
     setCompletionSummary(null);
@@ -2089,6 +2187,53 @@ export default function App() {
     setHomeVisible(true);
     playSound('tap');
   }, [playSound]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      return undefined;
+    }
+    return subscribeToPushTokenChanges(() => {
+      refreshPushRegistration(userId);
+    });
+  }, [
+    refreshPushRegistration,
+    session?.user?.id,
+  ]);
+
+  useEffect(
+    () =>
+      subscribeToNotificationEvents({
+        onNotification: () => {
+          const userId = activeUserIdRef.current;
+          if (!userId) {
+            return;
+          }
+          refreshIncomingFriendRequestCount(userId);
+          refreshUnreadNotificationCount(userId);
+        },
+        onResponse: (response) => {
+          const notificationId =
+            response?.notification?.request?.content?.data?.notificationId;
+          const userId = activeUserIdRef.current;
+          if (userId && typeof notificationId === 'string') {
+            markNotificationsRead([notificationId])
+              .then(() => refreshUnreadNotificationCount(userId))
+              .catch(() => {});
+          }
+          setHomeVisible(true);
+          setHomePage('home');
+          setSettingsVisible(false);
+          setAccountVisible(false);
+          setNotificationsVisible(false);
+          setFriendsVisible(true);
+        },
+      }),
+    [
+      refreshIncomingFriendRequestCount,
+      refreshUnreadNotificationCount,
+    ],
+  );
 
   return (
     <SafeAreaProvider>
@@ -2366,8 +2511,11 @@ export default function App() {
           onOpenFriends={openFriends}
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
+          onTogglePush={togglePushNotifications}
           progress={progress}
           profile={profile}
+          pushBusy={pushBusy}
+          pushStatus={pushStatus}
           session={session}
           soundEnabled={soundEnabled}
           strings={t}
@@ -3512,9 +3660,12 @@ function SettingsPanel({
   onOpenAccount,
   onOpenFriends,
   onSelectDifficulty,
+  onTogglePush,
   onToggleSound,
   profile,
   progress,
+  pushBusy,
+  pushStatus,
   session,
   soundEnabled,
   strings,
@@ -3536,6 +3687,16 @@ function SettingsPanel({
   if (leaderboardLoading) {
     leaderboardNote = strings.settings.friendLeaderboardLoading;
   }
+
+  const pushSettingCopy = {
+    account_required: strings.notifications.settingsAccount,
+    denied: strings.notifications.settingsDenied,
+    disabled: strings.notifications.settingsDisabled,
+    enabled: strings.notifications.settingsEnabled,
+    error: strings.notifications.settingsError,
+    loading: strings.notifications.loading,
+    unavailable: strings.notifications.settingsUnavailable,
+  }[pushStatus] || strings.notifications.settingsDisabled;
 
   return (
     <View style={styles.modalOverlay}>
@@ -3574,6 +3735,45 @@ function SettingsPanel({
                 </Text>
               </View>
               <Text style={styles.settingValue}>{soundEnabled ? 'ON' : 'OFF'}</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: pushStatus === 'enabled',
+                disabled: pushBusy || pushStatus === 'loading',
+              }}
+              disabled={pushBusy || pushStatus === 'loading'}
+              onPress={onTogglePush}
+              style={({ pressed }) => [
+                styles.settingRow,
+                styles.settingRowGap,
+                (pushBusy || pushStatus === 'loading') &&
+                  styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.settingIcon}>!</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>
+                  {strings.notifications.settingsTitle}
+                </Text>
+                <Text numberOfLines={2} style={styles.settingSubtitle}>
+                  {pushSettingCopy}
+                </Text>
+              </View>
+              {pushBusy ? (
+                <ActivityIndicator color="#147b76" size="small" />
+              ) : (
+                <Text style={styles.settingValue}>
+                  {pushStatus === 'enabled'
+                    ? 'ON'
+                    : pushStatus === 'denied' ||
+                        pushStatus === 'account_required'
+                      ? '→'
+                      : 'OFF'}
+                </Text>
+              )}
             </Pressable>
 
             <Pressable

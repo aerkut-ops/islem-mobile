@@ -13,6 +13,7 @@ const PRIVATE_TABLES = [
   { name: 'score_events' },
   { name: 'achievement_unlocks' },
   { name: 'user_notifications', directReadDenied: true },
+  { name: 'push_devices', directReadDenied: true },
   { name: 'account_deletion_requests' },
 ];
 

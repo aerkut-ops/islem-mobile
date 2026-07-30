@@ -2,6 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const TEST_CAPTCHA_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
+const EXPO_PROJECT_ID = '0c09f907-48f9-405c-bc54-877f165297a3';
+const PUSH_SMOKE_WAIT_MS = Math.min(
+  120_000,
+  Math.max(0, Number(process.env.ISLEM_PUSH_SMOKE_WAIT_MS) || 0),
+);
 
 const ACCOUNTS = [
   {
@@ -244,6 +249,39 @@ async function dismissNotification(context, session, notificationId) {
   });
 }
 
+async function registerPushDevice(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'register_push_device',
+    parameters: {
+      p_application_id: 'com.aydin.islem.security-test',
+      p_expo_push_token: pushToken,
+      p_locale: 'en',
+      p_platform: 'ios',
+      p_project_id: EXPO_PROJECT_ID,
+    },
+  });
+}
+
+async function isPushDeviceRegistered(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'is_push_device_registered',
+    parameters: { p_expo_push_token: pushToken },
+  });
+}
+
+async function unregisterPushDevice(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'unregister_push_device',
+    parameters: { p_expo_push_token: pushToken },
+  });
+}
+
 async function cleanupTestNotifications(context, sessions, entityIds) {
   for (const session of sessions) {
     const rows = await listNotifications(context, session, 50);
@@ -336,6 +374,8 @@ async function assertDirectTablesDenied(context, session) {
   for (const table of [
     'friend_requests',
     'friendships',
+    'push_deliveries',
+    'push_devices',
     'user_notifications',
   ]) {
     const response = await fetch(
@@ -352,6 +392,7 @@ async function assertDirectTablesDenied(context, session) {
 
 async function assertAnonymousRpcDenied(context) {
   for (const functionName of [
+    'claim_pending_push_notifications',
     'dismiss_notification',
     'get_friend_profile',
     'get_incoming_friend_request_count',
@@ -361,11 +402,26 @@ async function assertAnonymousRpcDenied(context) {
     'list_friend_weekly_leaderboard',
     'list_user_notifications',
     'mark_notifications_read',
+    'register_push_device',
+    'unregister_push_device',
+    'is_push_device_registered',
+    'verify_push_worker_secret',
   ]) {
     const parameters = {
+      claim_pending_push_notifications: { p_limit: 1 },
       dismiss_notification: { p_notification_id: null },
       get_friend_profile: { p_player_id: null },
+      is_push_device_registered: { p_expo_push_token: null },
       mark_notifications_read: { p_notification_ids: null },
+      register_push_device: {
+        p_application_id: null,
+        p_expo_push_token: null,
+        p_locale: 'en',
+        p_platform: 'ios',
+        p_project_id: EXPO_PROJECT_ID,
+      },
+      unregister_push_device: { p_expo_push_token: null },
+      verify_push_worker_secret: { p_secret: null },
     }[functionName] || {};
     const response = await fetch(
       `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
@@ -411,6 +467,31 @@ async function main() {
   if (development.userId === appReview.userId) {
     throw new Error('The two test accounts resolved to the same user.');
   }
+
+  const testPushToken =
+    `ExponentPushToken[security_${development.userId.replaceAll('-', '')}]`;
+  if (
+    (await registerPushDevice(context, development, testPushToken)) !== true ||
+    (await isPushDeviceRegistered(context, development, testPushToken)) !==
+      true
+  ) {
+    throw new Error('Development push device was not registered.');
+  }
+  if (
+    (await registerPushDevice(context, appReview, testPushToken)) !== false ||
+    (await isPushDeviceRegistered(context, appReview, testPushToken)) !== false
+  ) {
+    throw new Error('An active push token was reassigned to another account.');
+  }
+  if (
+    (await unregisterPushDevice(context, development, testPushToken)) !==
+      true ||
+    (await registerPushDevice(context, appReview, testPushToken)) !== true ||
+    (await unregisterPushDevice(context, appReview, testPushToken)) !== true
+  ) {
+    throw new Error('Push token ownership transfer did not require deactivation.');
+  }
+  console.log('PASS  Push tokens cannot be hijacked between active accounts.');
 
   await cleanTestRelationship(context, development, appReview);
   const testEntityIds = new Set();
@@ -689,9 +770,15 @@ async function main() {
     }
     if (
       (await getUnreadNotificationCount(context, development)) !==
-      initialDevelopmentUnread + 1
+        initialDevelopmentUnread + 1
     ) {
       throw new Error('Acceptance did not increase the sender unread count.');
+    }
+    if (PUSH_SMOKE_WAIT_MS > 0) {
+      console.log(
+        `WAIT  Keeping the acceptance notification pending for ${PUSH_SMOKE_WAIT_MS}ms.`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, PUSH_SMOKE_WAIT_MS));
     }
 
     const crossAccountDismiss = await dismissNotification(

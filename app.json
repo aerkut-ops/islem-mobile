@@ -77,6 +77,14 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "icon": "./assets/android-icon-monochrome.png",
+          "color": "#1FA7A0",
+          "defaultChannel": "social"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "ios": {
