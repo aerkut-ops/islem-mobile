@@ -8,6 +8,8 @@ const PRIVATE_TABLES = [
   { name: 'profiles', requireOwnRow: true },
   { name: 'player_stats', requireOwnRow: true },
   { name: 'daily_progress' },
+  { name: 'weekly_scores' },
+  { name: 'monthly_scores' },
   { name: 'score_events' },
   { name: 'achievement_unlocks' },
   { name: 'account_deletion_requests' },

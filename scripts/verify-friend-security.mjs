@@ -151,6 +151,29 @@ async function listConnections(context, session) {
   return rows;
 }
 
+async function listWeeklyLeaderboard(context, session, weekKey) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_friend_weekly_leaderboard',
+    parameters: { p_week_key: weekKey },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Friend weekly leaderboard returned an unexpected response.');
+  }
+  return rows;
+}
+
+function getCurrentWeekKey() {
+  const date = new Date();
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const calendarDay = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${calendarDay}`;
+}
+
 async function cleanTestRelationship(context, first, second) {
   const firstRows = await listConnections(context, first);
   const relation = firstRows.find((row) => row.player_id === second.userId);
@@ -200,19 +223,24 @@ async function assertDirectTablesDenied(context, session) {
 }
 
 async function assertAnonymousRpcDenied(context) {
-  const response = await fetch(
-    `${context.supabaseUrl}/rest/v1/rpc/list_friend_connections`,
-    {
-      method: 'POST',
-      headers: {
-        apikey: context.publishableKey,
-        'Content-Type': 'application/json',
+  for (const functionName of [
+    'list_friend_connections',
+    'list_friend_weekly_leaderboard',
+  ]) {
+    const response = await fetch(
+      `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: context.publishableKey,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
       },
-      body: '{}',
-    },
-  );
-  if (![401, 403].includes(response.status)) {
-    throw new Error('Anonymous friend connection access was not denied.');
+    );
+    if (![401, 403].includes(response.status)) {
+      throw new Error(`Anonymous ${functionName} access was not denied.`);
+    }
   }
 }
 
@@ -238,6 +266,7 @@ async function main() {
     );
   }
   const [development, appReview] = sessions;
+  const weekKey = getCurrentWeekKey();
 
   if (development.userId === appReview.userId) {
     throw new Error('The two test accounts resolved to the same user.');
@@ -246,6 +275,22 @@ async function main() {
   await cleanTestRelationship(context, development, appReview);
 
   try {
+    const privateLeaderboard = await listWeeklyLeaderboard(
+      context,
+      development,
+      weekKey,
+    );
+    if (
+      !privateLeaderboard.some(
+        (row) =>
+          row.player_id === development.userId && row.is_current_user === true,
+      ) ||
+      privateLeaderboard.some((row) => row.player_id === appReview.userId)
+    ) {
+      throw new Error('Non-friend weekly scores are visible.');
+    }
+    console.log('PASS  Weekly scores remain hidden before friendship.');
+
     const searchRows = await rpc({
       ...context,
       session: development,
@@ -379,6 +424,26 @@ async function main() {
     }
     console.log('PASS  Accepted friendships are visible to both participants.');
 
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const rows = await listWeeklyLeaderboard(context, session, weekKey);
+      const ownRow = rows.find((row) => row.player_id === session.userId);
+      const friendRow = rows.find((row) => row.player_id === other.userId);
+      if (
+        !ownRow?.is_current_user ||
+        !friendRow ||
+        friendRow.is_current_user ||
+        rows.some((row) => 'email' in row)
+      ) {
+        throw new Error(
+          `${session.label} friend weekly leaderboard is incomplete or unsafe.`,
+        );
+      }
+    }
+    console.log('PASS  Friend weekly scores are visible only after acceptance.');
+
     await assertDirectTablesDenied(context, development);
     console.log('PASS  Direct friend table reads are denied.');
 
@@ -391,6 +456,15 @@ async function main() {
   const finalRows = await listConnections(context, development);
   if (finalRows.some((row) => row.player_id === appReview.userId)) {
     throw new Error('Security test did not clean up its test relationship.');
+  }
+
+  const finalLeaderboard = await listWeeklyLeaderboard(
+    context,
+    development,
+    weekKey,
+  );
+  if (finalLeaderboard.some((row) => row.player_id === appReview.userId)) {
+    throw new Error('Removed friend is still visible in the weekly leaderboard.');
   }
 
   console.log('PASS  Friend security check completed and cleaned up test data.');

@@ -34,6 +34,7 @@ import {
   hasQueuedGameResults,
   submitGameResult,
 } from './src/services/gameResultSync';
+import { loadFriendWeeklyLeaderboard } from './src/services/leaderboardService';
 import { reconcilePlayerProgress } from './src/services/playerProgressReconcile.mjs';
 import {
   getCurrentSession,
@@ -334,7 +335,10 @@ const STRINGS = {
       soundOff: 'Ses kapalı',
       startDaily: 'Günün bulmacasını aç',
       startWeekly: 'Haftalık meydan okumayı aç',
-      localLeaderboardNote: 'Şimdilik cihaz içi liste. Arkadaş listesi için online sistem gerekir.',
+      localLeaderboardNote: 'Misafir listesi bu cihazda örnek oyuncularla gösterilir.',
+      friendLeaderboardNote: 'Yalnızca sen ve kabul ettiğin arkadaşların görünür.',
+      friendLeaderboardLoading: 'Arkadaş puanları yükleniyor...',
+      friendLeaderboardError: 'Arkadaş puanları şu anda yüklenemedi.',
       you: 'Sen',
       gamesCompleted: 'Bitirilen',
       totalScore: 'Toplam puan',
@@ -735,7 +739,10 @@ const STRINGS = {
       soundOff: 'Sound off',
       startDaily: 'Open daily puzzle',
       startWeekly: 'Open weekly challenge',
-      localLeaderboardNote: 'Local list for now. Friends require an online system.',
+      localLeaderboardNote: 'The guest board uses sample players on this device.',
+      friendLeaderboardNote: 'Only you and your accepted friends are shown.',
+      friendLeaderboardLoading: 'Loading friend scores...',
+      friendLeaderboardError: 'Friend scores could not be loaded right now.',
       you: 'You',
       gamesCompleted: 'Completed',
       totalScore: 'Total score',
@@ -1024,6 +1031,9 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
+  const [friendWeeklyLeaderboard, setFriendWeeklyLeaderboard] = useState(null);
+  const [friendLeaderboardLoading, setFriendLeaderboardLoading] = useState(false);
+  const [friendLeaderboardError, setFriendLeaderboardError] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -1062,10 +1072,89 @@ export default function App() {
   const weeklyDone = Boolean(progress.completedWeeklyKeys[weekKey]);
   const weeklyScore = progress.weeklyScores[weekKey] || 0;
   const currentLeague = getLeagueForScore(weeklyScore);
-  const weeklyLeaderboard = useMemo(
+  const localWeeklyLeaderboard = useMemo(
     () => makeWeeklyLeaderboard(weeklyScore, weekKey, t),
     [t, weekKey, weeklyScore],
   );
+  const leaderboardOnline = Boolean(session?.user?.id);
+  const weeklyLeaderboard = useMemo(() => {
+    if (!leaderboardOnline) {
+      return localWeeklyLeaderboard;
+    }
+
+    if (!friendWeeklyLeaderboard?.length) {
+      return [
+        {
+          isUser: true,
+          name:
+            profile?.display_name ||
+            (profile?.username ? `@${profile.username}` : t.settings.you),
+          position: 1,
+          score: weeklyScore,
+        },
+      ];
+    }
+
+    return friendWeeklyLeaderboard.map((row) => ({
+      isUser: row.is_current_user,
+      name:
+        row.display_name ||
+        (row.username ? `@${row.username}` : t.settings.you),
+      position: row.position,
+      score: row.score,
+    }));
+  }, [
+    friendWeeklyLeaderboard,
+    leaderboardOnline,
+    localWeeklyLeaderboard,
+    profile?.display_name,
+    profile?.username,
+    t.settings.you,
+    weeklyScore,
+  ]);
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+
+    if (!settingsVisible || !userId) {
+      setFriendWeeklyLeaderboard(null);
+      setFriendLeaderboardLoading(false);
+      setFriendLeaderboardError('');
+      return () => {
+        active = false;
+      };
+    }
+
+    setFriendWeeklyLeaderboard(null);
+    setFriendLeaderboardLoading(true);
+    setFriendLeaderboardError('');
+    loadFriendWeeklyLeaderboard(weekKey)
+      .then((rows) => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendWeeklyLeaderboard(rows);
+        }
+      })
+      .catch(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendLeaderboardError(t.settings.friendLeaderboardError);
+        }
+      })
+      .finally(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendLeaderboardLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    session?.user?.id,
+    settingsVisible,
+    t.settings.friendLeaderboardError,
+    weekKey,
+  ]);
 
   const refreshCloudProgress = useCallback(
     async (userId, { flushQueue = true } = {}) => {
@@ -2042,6 +2131,9 @@ export default function App() {
         <SettingsPanel
           currentDifficulty={game.difficulty}
           leaderboard={weeklyLeaderboard}
+          leaderboardError={friendLeaderboardError}
+          leaderboardLoading={friendLeaderboardLoading}
+          leaderboardOnline={leaderboardOnline}
           league={currentLeague}
           onClose={closeSettings}
           onGoHome={showHome}
@@ -3118,6 +3210,9 @@ function StreakPanel({ onClose, progress, strings, todayDone, visible }) {
 function SettingsPanel({
   currentDifficulty,
   leaderboard,
+  leaderboardError,
+  leaderboardLoading,
+  leaderboardOnline,
   league,
   onClose,
   onGoHome,
@@ -3136,6 +3231,17 @@ function SettingsPanel({
 }) {
   if (!visible) {
     return null;
+  }
+
+  let leaderboardNote = strings.settings.localLeaderboardNote;
+  if (leaderboardOnline) {
+    leaderboardNote = strings.settings.friendLeaderboardNote;
+  }
+  if (leaderboardError) {
+    leaderboardNote = leaderboardError;
+  }
+  if (leaderboardLoading) {
+    leaderboardNote = strings.settings.friendLeaderboardLoading;
   }
 
   return (
@@ -3269,14 +3375,14 @@ function SettingsPanel({
             </View>
             {leaderboard.map((item, index) => (
               <View key={`${item.name}-${index}`} style={[styles.leaderRow, item.isUser && styles.userLeaderRow]}>
-                <Text style={styles.leaderRank}>{index + 1}</Text>
+                <Text style={styles.leaderRank}>{item.position || index + 1}</Text>
                 <Text numberOfLines={1} style={[styles.leaderName, item.isUser && styles.userLeaderText]}>
                   {item.name}
                 </Text>
                 <Text style={[styles.leaderScore, item.isUser && styles.userLeaderText]}>{item.score}</Text>
               </View>
             ))}
-            <Text style={styles.noteText}>{strings.settings.localLeaderboardNote}</Text>
+            <Text style={styles.noteText}>{leaderboardNote}</Text>
           </PanelSection>
 
           <PanelSection title={strings.settings.achievements}>
