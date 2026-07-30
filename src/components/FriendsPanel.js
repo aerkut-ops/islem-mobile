@@ -21,6 +21,13 @@ import {
   searchPlayers,
   sendFriendRequest,
 } from '../services/friendService';
+import {
+  cancelChallengeInvite,
+  loadActiveChallengeRoom,
+  loadChallengeInvites,
+  respondChallengeInvite,
+  sendChallengeInvite,
+} from '../services/challengeService';
 
 const EMPTY_CONNECTIONS = {
   friends: [],
@@ -28,9 +35,15 @@ const EMPTY_CONNECTIONS = {
   outgoing: [],
 };
 
+const EMPTY_CHALLENGES = {
+  incoming: [],
+  outgoing: [],
+};
+
 export default function FriendsPanel({
   configured,
   loading,
+  onChallengeReady,
   onClose,
   onIncomingCountChange,
   onOpenAccount,
@@ -54,6 +67,8 @@ export default function FriendsPanel({
   const [friendProfile, setFriendProfile] = useState(null);
   const [friendProfileLoading, setFriendProfileLoading] = useState(false);
   const [friendProfileError, setFriendProfileError] = useState('');
+  const [challengeInvites, setChallengeInvites] = useState(EMPTY_CHALLENGES);
+  const [challengesLoading, setChallengesLoading] = useState(false);
   const friendProfileRequestRef = useRef(0);
 
   const canLoadFriends = Boolean(
@@ -94,6 +109,21 @@ export default function FriendsPanel({
     }
   }, [canLoadFriends, strings.activityError]);
 
+  const refreshChallenges = useCallback(async () => {
+    if (!canLoadFriends) {
+      return;
+    }
+
+    setChallengesLoading(true);
+    try {
+      setChallengeInvites(await loadChallengeInvites());
+    } catch {
+      setErrorMessage(strings.challengeLoadError);
+    } finally {
+      setChallengesLoading(false);
+    }
+  }, [canLoadFriends, strings.challengeLoadError]);
+
   useEffect(() => {
     if (!visible) {
       friendProfileRequestRef.current += 1;
@@ -112,14 +142,23 @@ export default function FriendsPanel({
       setFriendProfile(null);
       setFriendProfileLoading(false);
       setFriendProfileError('');
+      setChallengeInvites(EMPTY_CHALLENGES);
+      setChallengesLoading(false);
       return;
     }
 
     if (canLoadFriends) {
       refreshConnections();
       refreshActivity();
+      refreshChallenges();
     }
-  }, [canLoadFriends, refreshActivity, refreshConnections, visible]);
+  }, [
+    canLoadFriends,
+    refreshActivity,
+    refreshChallenges,
+    refreshConnections,
+    visible,
+  ]);
 
   const handleSearch = async () => {
     const query = searchText.trim();
@@ -145,13 +184,14 @@ export default function FriendsPanel({
 
   const refreshAfterAction = async () => {
     const query = searchText.trim();
-    const tasks = [loadFriendConnections()];
-    if (query.length >= 2) {
-      tasks.push(searchPlayers(query));
-    }
-
-    const [nextConnections, nextSearchResults] = await Promise.all(tasks);
+    const [nextConnections, nextChallenges, nextSearchResults] =
+      await Promise.all([
+        loadFriendConnections(),
+        loadChallengeInvites(),
+        query.length >= 2 ? searchPlayers(query) : Promise.resolve(null),
+      ]);
     setConnections(nextConnections);
+    setChallengeInvites(nextChallenges);
     onIncomingCountChange?.(nextConnections.incoming.length);
     if (nextSearchResults) {
       setSearchResults(nextSearchResults);
@@ -202,6 +242,58 @@ export default function FriendsPanel({
       setActionKey('');
     }
   };
+
+  const runChallengeAction = async (key, action) => {
+    setActionKey(key);
+    setErrorMessage('');
+    try {
+      const result = await action();
+      await refreshAfterAction();
+      return result;
+    } catch {
+      setErrorMessage(strings.challengeActionError);
+      return null;
+    } finally {
+      setActionKey('');
+    }
+  };
+
+  const acceptChallenge = async (invite) => {
+    const response = await runChallengeAction(
+      `challenge-accept-${invite.invite_id}`,
+      () => respondChallengeInvite(invite.invite_id, true),
+    );
+    if (response?.result !== 'accepted') {
+      return;
+    }
+
+    try {
+      const room = await loadActiveChallengeRoom();
+      if (room) {
+        closeFriendProfile();
+        onChallengeReady?.(room);
+      }
+    } catch {
+      setErrorMessage(strings.challengeActionError);
+    }
+  };
+
+  const declineChallenge = (invite) =>
+    runChallengeAction(
+      `challenge-decline-${invite.invite_id}`,
+      () => respondChallengeInvite(invite.invite_id, false),
+    );
+
+  const cancelChallenge = (invite) =>
+    runChallengeAction(
+      `challenge-cancel-${invite.invite_id}`,
+      () => cancelChallengeInvite(invite.invite_id),
+    );
+
+  const challengeForPlayer = (playerId, direction) =>
+    challengeInvites[direction].find(
+      (invite) => invite.player_id === playerId,
+    ) || null;
 
   const confirmRemove = (player) => {
     const name = player.display_name || `@${player.username}`;
@@ -402,6 +494,71 @@ export default function FriendsPanel({
               )}
             </FriendSection>
 
+            {challengesLoading ? (
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator color="#1fa7a0" size="small" />
+                <Text style={styles.helperText}>
+                  {strings.challengeLoading}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <FriendSection
+                  emptyText={strings.emptyChallengeIncoming}
+                  onPlayerPress={openFriendProfile}
+                  rows={challengeInvites.incoming}
+                  strings={strings}
+                  title={strings.challengeIncoming}
+                >
+                  {(invite) => (
+                    <View style={styles.actions}>
+                      <SmallAction
+                        busy={
+                          actionKey ===
+                          `challenge-decline-${invite.invite_id}`
+                        }
+                        disabled={Boolean(actionKey)}
+                        label={strings.declineChallenge}
+                        onPress={() => declineChallenge(invite)}
+                        secondary
+                      />
+                      <SmallAction
+                        busy={
+                          actionKey ===
+                          `challenge-accept-${invite.invite_id}`
+                        }
+                        disabled={Boolean(actionKey)}
+                        label={strings.acceptChallenge}
+                        onPress={() => acceptChallenge(invite)}
+                      />
+                    </View>
+                  )}
+                </FriendSection>
+
+                {challengeInvites.outgoing.length > 0 ? (
+                  <FriendSection
+                    onPlayerPress={openFriendProfile}
+                    rows={challengeInvites.outgoing}
+                    strings={strings}
+                    title={strings.challengeOutgoing}
+                  >
+                    {(invite) => (
+                      <SmallAction
+                        busy={
+                          actionKey ===
+                          `challenge-cancel-${invite.invite_id}`
+                        }
+                        disabled={Boolean(actionKey)}
+                        label={strings.cancelChallenge}
+                        onPress={() => cancelChallenge(invite)}
+                        secondary
+                      />
+                    )}
+                  </FriendSection>
+                ) : null}
+              </>
+            )}
+
             {connections.outgoing.length > 0 ? (
               <FriendSection
                 rows={connections.outgoing}
@@ -474,10 +631,27 @@ export default function FriendsPanel({
       {selectedFriend ? (
         <FriendProfileCard
           error={friendProfileError}
+          incomingChallenge={challengeForPlayer(
+            selectedFriend.player_id,
+            'incoming',
+          )}
           loading={friendProfileLoading}
+          onAcceptChallenge={acceptChallenge}
           onClose={closeFriendProfile}
+          onDeclineChallenge={declineChallenge}
           onRetry={() => openFriendProfile(selectedFriend)}
+          onSendChallenge={(player) =>
+            runChallengeAction(
+              `challenge-send-${player.player_id}`,
+              () => sendChallengeInvite(player.player_id),
+            )
+          }
+          outgoingChallenge={challengeForPlayer(
+            selectedFriend.player_id,
+            'outgoing',
+          )}
           player={friendProfile || selectedFriend}
+          actionKey={actionKey}
           strings={strings}
         />
       ) : null}
@@ -583,10 +757,16 @@ function FriendSection({
 }
 
 function FriendProfileCard({
+  actionKey,
   error,
+  incomingChallenge,
   loading,
+  onAcceptChallenge,
   onClose,
+  onDeclineChallenge,
   onRetry,
+  onSendChallenge,
+  outgoingChallenge,
   player,
   strings,
 }) {
@@ -643,28 +823,78 @@ function FriendProfileCard({
             text={error}
           />
         ) : (
-          <View style={styles.profileStats}>
-            <ProfileStat
-              label={strings.weeklyScore}
-              value={player.weekly_score}
-            />
-            <ProfileStat
-              label={strings.totalScore}
-              value={player.total_score}
-            />
-            <ProfileStat
-              label={strings.gamesCompleted}
-              value={player.games_completed}
-            />
-            <ProfileStat
-              label={strings.bestScore}
-              value={player.best_score}
-            />
-            <ProfileStat
-              label={strings.bestStreak}
-              value={player.best_streak}
-            />
-          </View>
+          <>
+            <View style={styles.profileStats}>
+              <ProfileStat
+                label={strings.weeklyScore}
+                value={player.weekly_score}
+              />
+              <ProfileStat
+                label={strings.totalScore}
+                value={player.total_score}
+              />
+              <ProfileStat
+                label={strings.gamesCompleted}
+                value={player.games_completed}
+              />
+              <ProfileStat
+                label={strings.bestScore}
+                value={player.best_score}
+              />
+              <ProfileStat
+                label={strings.bestStreak}
+                value={player.best_streak}
+              />
+            </View>
+            {incomingChallenge ? (
+              <View style={styles.profileChallengeActions}>
+                <SmallAction
+                  busy={
+                    actionKey ===
+                    `challenge-decline-${incomingChallenge.invite_id}`
+                  }
+                  disabled={Boolean(actionKey)}
+                  label={strings.declineChallenge}
+                  onPress={() => onDeclineChallenge(incomingChallenge)}
+                  secondary
+                />
+                <SmallAction
+                  busy={
+                    actionKey ===
+                    `challenge-accept-${incomingChallenge.invite_id}`
+                  }
+                  disabled={Boolean(actionKey)}
+                  label={strings.acceptChallenge}
+                  onPress={() => onAcceptChallenge(incomingChallenge)}
+                />
+              </View>
+            ) : outgoingChallenge ? (
+              <View style={styles.challengeSentState}>
+                <Text style={styles.challengeSentText}>
+                  {strings.challengeSent}
+                </Text>
+              </View>
+            ) : (
+              <Pressable
+                accessibilityRole="button"
+                disabled={Boolean(actionKey)}
+                onPress={() => onSendChallenge(player)}
+                style={({ pressed }) => [
+                  styles.profileChallengeButton,
+                  Boolean(actionKey) && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                {actionKey === `challenge-send-${player.player_id}` ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <Text style={styles.profileChallengeButtonText}>
+                    {strings.challenge}
+                  </Text>
+                )}
+              </Pressable>
+            )}
+          </>
         )}
       </View>
     </View>
@@ -1115,6 +1345,40 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 12,
+  },
+  profileChallengeActions: {
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
+    marginTop: 12,
+  },
+  profileChallengeButton: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderRadius: 8,
+    justifyContent: 'center',
+    marginTop: 12,
+    minHeight: 42,
+    paddingHorizontal: 12,
+  },
+  profileChallengeButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  challengeSentState: {
+    alignItems: 'center',
+    backgroundColor: '#e9f8f7',
+    borderColor: '#b7e6e2',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 12,
+    padding: 11,
+  },
+  challengeSentText: {
+    color: '#147b76',
+    fontSize: 12,
+    fontWeight: '900',
   },
   profileStat: {
     backgroundColor: '#f7f8fb',

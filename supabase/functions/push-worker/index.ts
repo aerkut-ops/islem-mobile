@@ -12,7 +12,11 @@ const RECEIPT_EXPIRY_MS = 24 * 60 * 60 * 1000;
 type ClaimedNotification = {
   notification_id: string;
   recipient_user_id: string;
-  notification_type: 'friend_request' | 'friend_accepted';
+  notification_type:
+    | 'friend_request'
+    | 'friend_accepted'
+    | 'challenge_invite'
+    | 'challenge_accepted';
   actor_id: string;
   actor_username: string;
   actor_display_name: string | null;
@@ -77,9 +81,19 @@ function notificationCopy(
       ? `${actor} sana arkadaşlık isteği gönderdi.`
       : `${actor} sent you a friend request.`;
   }
+  if (notification.notification_type === 'friend_accepted') {
+    return locale === 'tr'
+      ? `${actor} arkadaşlık isteğini kabul etti.`
+      : `${actor} accepted your friend request.`;
+  }
+  if (notification.notification_type === 'challenge_invite') {
+    return locale === 'tr'
+      ? `${actor} sana meydan okuma daveti gönderdi.`
+      : `${actor} sent you a challenge invitation.`;
+  }
   return locale === 'tr'
-    ? `${actor} arkadaşlık isteğini kabul etti.`
-    : `${actor} accepted your friend request.`;
+    ? `${actor} meydan okuma davetini kabul etti.`
+    : `${actor} accepted your challenge invitation.`;
 }
 
 function normalizeTickets(payload: unknown) {
@@ -291,7 +305,10 @@ async function dispatchPendingNotifications(
           data: {
             entityId: notification.entity_id,
             notificationId: notification.notification_id,
-            screen: 'friends',
+            screen:
+              notification.notification_type === 'challenge_accepted'
+                ? 'challenge'
+                : 'friends',
             type: notification.notification_type,
           },
         },

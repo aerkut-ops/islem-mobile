@@ -12,6 +12,16 @@ const PRIVATE_TABLES = [
   { name: 'monthly_scores' },
   { name: 'score_events' },
   { name: 'achievement_unlocks' },
+  {
+    name: 'challenge_invites',
+    directReadDenied: true,
+    readColumn: 'sender_id',
+  },
+  {
+    name: 'challenge_rooms',
+    directReadDenied: true,
+    readColumn: 'host_id',
+  },
   { name: 'user_notifications', directReadDenied: true },
   { name: 'push_devices', directReadDenied: true },
   { name: 'account_deletion_requests' },
@@ -146,10 +156,11 @@ async function selectUserIds({
   table,
   userId,
   allowDenied = false,
+  readColumn = 'user_id',
 }) {
-  const query = new URLSearchParams({ select: 'user_id' });
+  const query = new URLSearchParams({ select: readColumn });
   if (userId) {
-    query.set('user_id', `eq.${userId}`);
+    query.set(readColumn, `eq.${userId}`);
   }
 
   const headers = { apikey: publishableKey };
@@ -203,6 +214,7 @@ async function verifyAccountIsolation({
       accessToken: session.accessToken,
       table: table.name,
       allowDenied: table.directReadDenied,
+      readColumn: table.readColumn,
     });
 
     if (table.directReadDenied) {
@@ -228,6 +240,7 @@ async function verifyAccountIsolation({
       accessToken: session.accessToken,
       table: table.name,
       userId: otherUserId,
+      readColumn: table.readColumn,
     });
 
     if (otherResult.rows.length !== 0) {
@@ -245,6 +258,7 @@ async function verifyAnonymousIsolation({ supabaseUrl, publishableKey }) {
       publishableKey,
       table: table.name,
       allowDenied: true,
+      readColumn: table.readColumn,
     });
 
     if (!result.denied && result.rows.length !== 0) {

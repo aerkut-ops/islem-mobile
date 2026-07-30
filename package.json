@@ -29,6 +29,7 @@
     "check": "npx expo-doctor",
     "check:unit": "node --test tests/*.test.mjs",
     "check:cloud": "node scripts/verify-cloud-security.mjs",
+    "check:challenges": "node scripts/verify-challenge-security.mjs",
     "check:friends": "node scripts/verify-friend-security.mjs",
     "check:profile": "node scripts/verify-profile-security.mjs",
     "check:ios": "expo export --platform ios --output-dir /private/tmp/islem-ios-export-check --no-bytecode --max-workers 1 --clear",

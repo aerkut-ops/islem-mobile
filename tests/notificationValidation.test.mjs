@@ -24,10 +24,10 @@ test('notifications keep only safe supported fields', () => {
       },
       {
         notification_id: 'newer-notification',
-        notification_type: 'friend_accepted',
+        notification_type: 'challenge_accepted',
         actor_id: 'actor-id',
         actor_username: 'player_one',
-        entity_id: 'accepted-request-id',
+        entity_id: 'room-id',
         is_read: true,
         created_at: '2026-07-30T12:00:00.000Z',
       },
@@ -35,11 +35,11 @@ test('notifications keep only safe supported fields', () => {
     [
       {
         notification_id: 'newer-notification',
-        notification_type: 'friend_accepted',
+        notification_type: 'challenge_accepted',
         actor_id: 'actor-id',
         actor_username: 'player_one',
         actor_display_name: null,
-        entity_id: 'accepted-request-id',
+        entity_id: 'room-id',
         is_read: true,
         created_at: '2026-07-30T12:00:00.000Z',
       },

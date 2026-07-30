@@ -24,6 +24,10 @@ import {
 import AccountPanel from './src/components/AccountPanel';
 import FriendsPanel from './src/components/FriendsPanel';
 import NotificationPanel from './src/components/NotificationPanel';
+import {
+  cancelChallengeRoom,
+  loadActiveChallengeRoom,
+} from './src/services/challengeService';
 import { loadIncomingFriendRequestCount } from './src/services/friendService';
 import {
   loadUnreadNotificationCount,
@@ -491,6 +495,17 @@ const STRINGS = {
       gamesCompleted: 'Tamamlanan oyun',
       bestScore: 'En iyi puan',
       bestStreak: 'En iyi seri',
+      challenge: 'Meydan oku',
+      challengeLoading: 'Meydan okuma davetleri yükleniyor...',
+      challengeLoadError: 'Meydan okuma davetleri şu anda yüklenemedi.',
+      challengeActionError: 'Meydan okuma işlemi tamamlanamadı. Lütfen tekrar dene.',
+      challengeIncoming: 'Gelen meydan okumalar',
+      challengeOutgoing: 'Gönderilen meydan okumalar',
+      emptyChallengeIncoming: 'Bekleyen meydan okuma davetin yok.',
+      acceptChallenge: 'Kabul',
+      declineChallenge: 'Reddet',
+      cancelChallenge: 'İptal',
+      challengeSent: 'Meydan okuma daveti gönderildi',
       activityTitle: 'Arkadaş etkinlikleri',
       activityLoading: 'Arkadaş etkinlikleri yükleniyor...',
       activityEmpty: 'Arkadaşların oyun tamamladığında burada görünecek.',
@@ -537,7 +552,10 @@ const STRINGS = {
       emptyText: 'Arkadaşlık istekleri ve kabul yanıtları burada görünecek.',
       friendRequest: (name) => `${name} sana arkadaşlık isteği gönderdi.`,
       friendAccepted: (name) => `${name} arkadaşlık isteğini kabul etti.`,
+      challengeInvite: (name) => `${name} sana meydan okuma daveti gönderdi.`,
+      challengeAccepted: (name) => `${name} meydan okuma davetini kabul etti.`,
       openFriends: 'Arkadaşları aç',
+      openChallenge: 'Meydan okumayı aç',
       dismiss: 'Bildirimi kaldır',
       newLabel: 'Yeni',
       now: 'Şimdi',
@@ -589,6 +607,10 @@ const STRINGS = {
       roomCode: 'Oda kodu',
       roomWaiting: 'Oda hazır. Kodu arkadaşına gönder veya arama yapan oyuncuyu bekle.',
       roomMatched: (name) => `${name} katıldı. Yarışa başlayabilirsin.`,
+      roomReadyTitle: 'Yarış odası hazır',
+      roomOpponent: 'Rakip',
+      roomReadyMessage: 'Davet kabul edildi. Canlı yarış ve ortak bulmaca eşitlemesi bir sonraki aşamada açılacak.',
+      roomInviteFriend: 'Arkadaşlarına git',
       roomStart: 'Yarışı başlat',
       roomReset: 'Odayı kapat',
       weeklyStart: 'Haftalık bulmacayı oyna',
@@ -967,6 +989,17 @@ const STRINGS = {
       gamesCompleted: 'Games completed',
       bestScore: 'Best score',
       bestStreak: 'Best streak',
+      challenge: 'Challenge',
+      challengeLoading: 'Loading challenge invitations...',
+      challengeLoadError: 'Challenge invitations could not be loaded right now.',
+      challengeActionError: 'The challenge action could not be completed. Please try again.',
+      challengeIncoming: 'Incoming challenges',
+      challengeOutgoing: 'Sent challenges',
+      emptyChallengeIncoming: 'You have no pending challenge invitations.',
+      acceptChallenge: 'Accept',
+      declineChallenge: 'Decline',
+      cancelChallenge: 'Cancel',
+      challengeSent: 'Challenge invitation sent',
       activityTitle: 'Friend activity',
       activityLoading: 'Loading friend activity...',
       activityEmpty: 'Completed games from your friends will appear here.',
@@ -1013,7 +1046,10 @@ const STRINGS = {
       emptyText: 'Friend requests and accepted requests will appear here.',
       friendRequest: (name) => `${name} sent you a friend request.`,
       friendAccepted: (name) => `${name} accepted your friend request.`,
+      challengeInvite: (name) => `${name} sent you a challenge invitation.`,
+      challengeAccepted: (name) => `${name} accepted your challenge invitation.`,
       openFriends: 'Open friends',
+      openChallenge: 'Open challenge',
       dismiss: 'Dismiss notification',
       newLabel: 'New',
       now: 'Now',
@@ -1065,6 +1101,10 @@ const STRINGS = {
       roomCode: 'Room code',
       roomWaiting: 'Room ready. Send the code to a friend or wait for a searching player.',
       roomMatched: (name) => `${name} joined. You can start the race.`,
+      roomReadyTitle: 'Race room ready',
+      roomOpponent: 'Opponent',
+      roomReadyMessage: 'The invitation was accepted. Live race and shared puzzle sync will open in the next stage.',
+      roomInviteFriend: 'Open friends',
       roomStart: 'Start race',
       roomReset: 'Close room',
       weeklyStart: 'Play weekly puzzle',
@@ -1309,6 +1349,23 @@ export default function App() {
     }
   }, []);
 
+  const refreshChallengeRoom = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setChallengeRoom(null);
+      return null;
+    }
+
+    try {
+      const room = await loadActiveChallengeRoom();
+      if (activeUserIdRef.current === userId) {
+        setChallengeRoom(room);
+      }
+      return room;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const refreshPushRegistration = useCallback(
     async (userId) => {
       if (!userId || activeUserIdRef.current !== userId) {
@@ -1348,6 +1405,15 @@ export default function App() {
     }
     refreshUnreadNotificationCount(userId);
   }, [refreshUnreadNotificationCount, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setChallengeRoom(null);
+      return;
+    }
+    refreshChallengeRoom(userId);
+  }, [refreshChallengeRoom, session?.user?.id]);
 
   useEffect(() => {
     if (authLoading) {
@@ -1611,6 +1677,7 @@ export default function App() {
       refreshIncomingFriendRequestCount(userId);
       refreshUnreadNotificationCount(userId);
       refreshPushRegistration(userId);
+      refreshChallengeRoom(userId);
     };
 
     const appStateSubscription = AppState.addEventListener(
@@ -1625,6 +1692,7 @@ export default function App() {
     return () => appStateSubscription.remove();
   }, [
     refreshCloudProgress,
+    refreshChallengeRoom,
     refreshIncomingFriendRequestCount,
     refreshPushRegistration,
     refreshUnreadNotificationCount,
@@ -2126,7 +2194,11 @@ export default function App() {
   const openChallengePage = useCallback(() => {
     playSound('tap');
     setHomePage('challenge');
-  }, [playSound]);
+    const userId = activeUserIdRef.current;
+    if (userId) {
+      refreshChallengeRoom(userId);
+    }
+  }, [playSound, refreshChallengeRoom]);
 
   const openStatsPage = useCallback(() => {
     playSound('tap');
@@ -2157,10 +2229,24 @@ export default function App() {
     playSound('tap');
   }, [playSound, t]);
 
-  const resetChallengeRoom = useCallback(() => {
+  const resetChallengeRoom = useCallback(async () => {
+    const roomId = challengeRoom?.room_id;
     setChallengeRoom(null);
     playSound('tap');
-  }, [playSound]);
+    if (roomId) {
+      await cancelChallengeRoom(roomId).catch(() => {});
+    }
+  }, [challengeRoom?.room_id, playSound]);
+
+  const handleChallengeReady = useCallback((room) => {
+    setChallengeRoom(room);
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setNotificationsVisible(false);
+    setFriendsVisible(false);
+    setHomeVisible(true);
+    setHomePage('challenge');
+  }, []);
 
   const startRoomChallenge = useCallback(() => {
     setChallengeRoom((currentRoom) =>
@@ -2214,6 +2300,8 @@ export default function App() {
           refreshUnreadNotificationCount(userId);
         },
         onResponse: (response) => {
+          const destination =
+            response?.notification?.request?.content?.data?.screen;
           const notificationId =
             response?.notification?.request?.content?.data?.notificationId;
           const userId = activeUserIdRef.current;
@@ -2223,15 +2311,24 @@ export default function App() {
               .catch(() => {});
           }
           setHomeVisible(true);
-          setHomePage('home');
           setSettingsVisible(false);
           setAccountVisible(false);
           setNotificationsVisible(false);
-          setFriendsVisible(true);
+          if (destination === 'challenge') {
+            setFriendsVisible(false);
+            setHomePage('challenge');
+            if (userId) {
+              refreshChallengeRoom(userId);
+            }
+          } else {
+            setHomePage('home');
+            setFriendsVisible(true);
+          }
         },
       }),
     [
       refreshIncomingFriendRequestCount,
+      refreshChallengeRoom,
       refreshUnreadNotificationCount,
     ],
   );
@@ -2264,6 +2361,7 @@ export default function App() {
             onOpenChallenge={openChallengePage}
             onOpenAccount={openAccount}
             onOpenDaily={openDailyPage}
+            onOpenFriends={openFriends}
             onOpenNotifications={openNotifications}
             onOpenSettings={openSettings}
             onOpenStreak={openStreak}
@@ -2549,6 +2647,7 @@ export default function App() {
           configured={isSupabaseConfigured}
           loading={authLoading || profileLoading}
           onClose={closeFriends}
+          onChallengeReady={handleChallengeReady}
           onIncomingCountChange={handleIncomingFriendRequestCountChange}
           onOpenAccount={openAccount}
           profile={profile}
@@ -2561,6 +2660,7 @@ export default function App() {
           loading={authLoading}
           onClose={closeNotifications}
           onOpenAccount={openAccount}
+          onOpenChallenge={openChallengePage}
           onOpenFriends={openFriends}
           onUnreadCountChange={setUnreadNotificationCount}
           session={session}
@@ -3055,6 +3155,7 @@ function HomeScreen({
   onOpenAccount,
   onOpenChallenge,
   onOpenDaily,
+  onOpenFriends,
   onOpenNotifications,
   onOpenSettings,
   onOpenStreak,
@@ -3233,6 +3334,11 @@ function HomeScreen({
   }
 
   if (homePage === 'challenge') {
+    const opponentName = challengeRoom
+      ? challengeRoom.opponent_display_name ||
+        `@${challengeRoom.opponent_username}`
+      : '';
+
     return (
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
@@ -3251,13 +3357,65 @@ function HomeScreen({
           <Text style={styles.homeCardText}>{strings.home.challengePageText}</Text>
           <View style={styles.roomPanel}>
             <View style={styles.roomHeader}>
-              <Text style={styles.roomTitle}>{strings.home.challengeStatusTitle}</Text>
+              <Text style={styles.roomTitle}>
+                {challengeRoom
+                  ? strings.home.roomReadyTitle
+                  : strings.home.challengeStatusTitle}
+              </Text>
               <Text style={styles.roomWeek}>{strings.home.challengeTitle}</Text>
             </View>
-            <View style={styles.roomState}>
-              <Text style={styles.roomLabel}>{strings.home.challengeButton}</Text>
-              <Text style={styles.roomMessage}>{strings.home.challengeStatusText}</Text>
-            </View>
+            {challengeRoom ? (
+              <>
+                <View style={styles.roomState}>
+                  <Text style={styles.roomLabel}>{strings.home.roomCode}</Text>
+                  <Text style={styles.roomCode}>
+                    {challengeRoom.room_code}
+                  </Text>
+                  <Text style={styles.roomLabel}>
+                    {strings.home.roomOpponent}
+                  </Text>
+                  <Text style={styles.roomOpponent}>{opponentName}</Text>
+                  <Text style={styles.roomMessage}>
+                    {strings.home.roomReadyMessage}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onResetChallengeRoom}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {strings.home.roomReset}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <View style={styles.roomState}>
+                  <Text style={styles.roomLabel}>
+                    {strings.home.challengeButton}
+                  </Text>
+                  <Text style={styles.roomMessage}>
+                    {strings.home.challengeStatusText}
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onOpenFriends}
+                  style={({ pressed }) => [
+                    styles.homeButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.homeButtonText}>
+                    {strings.home.roomInviteFriend}
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -5572,6 +5730,13 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '900',
     letterSpacing: 2,
+    marginTop: 2,
+  },
+  roomOpponent: {
+    color: '#147b76',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 8,
     marginTop: 2,
   },
   roomMessage: {

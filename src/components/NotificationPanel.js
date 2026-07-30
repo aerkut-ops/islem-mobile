@@ -19,6 +19,7 @@ export default function NotificationPanel({
   loading,
   onClose,
   onOpenAccount,
+  onOpenChallenge,
   onOpenFriends,
   onUnreadCountChange,
   session,
@@ -101,6 +102,11 @@ export default function NotificationPanel({
     onOpenFriends();
   };
 
+  const handleOpenChallenge = () => {
+    onClose();
+    onOpenChallenge();
+  };
+
   if (!visible) {
     return null;
   }
@@ -153,7 +159,11 @@ export default function NotificationPanel({
               onDismiss={() =>
                 handleDismiss(notification.notification_id)
               }
-              onOpen={handleOpenFriends}
+              onOpen={
+                notification.notification_type === 'challenge_accepted'
+                  ? handleOpenChallenge
+                  : handleOpenFriends
+              }
               strings={strings}
             />
           ))
@@ -208,15 +218,21 @@ function NotificationRow({
   const name =
     notification.actor_display_name ||
     `@${notification.actor_username}`;
-  const message =
-    notification.notification_type === 'friend_request'
-      ? strings.friendRequest(name)
-      : strings.friendAccepted(name);
+  const message = {
+    challenge_accepted: strings.challengeAccepted(name),
+    challenge_invite: strings.challengeInvite(name),
+    friend_accepted: strings.friendAccepted(name),
+    friend_request: strings.friendRequest(name),
+  }[notification.notification_type];
+  const openLabel =
+    notification.notification_type === 'challenge_accepted'
+      ? strings.openChallenge
+      : strings.openFriends;
 
   return (
     <View style={styles.notificationRow}>
       <Pressable
-        accessibilityLabel={`${message}. ${strings.openFriends}`}
+        accessibilityLabel={`${message}. ${openLabel}`}
         accessibilityRole="button"
         onPress={onOpen}
         style={({ pressed }) => [
