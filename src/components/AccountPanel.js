@@ -14,6 +14,7 @@ import {
 import { deleteCurrentAccount } from '../services/accountService';
 import { sendMagicLink, signInWithPassword, signOut } from '../services/authService';
 import { loadPlayerCloudStats } from '../services/playerCloudData';
+import { updateOwnProfile } from '../services/profileService';
 import TurnstileChallenge, {
   getTurnstileDevelopmentToken,
   isTurnstileConfigured,
@@ -26,6 +27,11 @@ export default function AccountPanel({
   language,
   loading,
   onClose,
+  onProfileChange,
+  onProfileRetry,
+  profile,
+  profileLoadFailed,
+  profileLoading,
   session,
   strings,
   visible,
@@ -39,6 +45,12 @@ export default function AccountPanel({
   const [cloudStats, setCloudStats] = useState(null);
   const [cloudStatsError, setCloudStatsError] = useState('');
   const [cloudStatsLoading, setCloudStatsLoading] = useState(false);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileUsername, setProfileUsername] = useState('');
+  const [profileDisplayName, setProfileDisplayName] = useState('');
+  const [profileMessage, setProfileMessage] = useState('');
+  const [profileError, setProfileError] = useState('');
   const [deleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
   const [captchaVisible, setCaptchaVisible] = useState(false);
   const [pendingAuth, setPendingAuth] = useState(null);
@@ -53,8 +65,36 @@ export default function AccountPanel({
       setDeleteConfirmVisible(false);
       setPassword('');
       setLoginMethod('link');
+      setProfileBusy(false);
+      setProfileEditing(false);
+      setProfileMessage('');
+      setProfileError('');
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !session?.user?.id ||
+      profileLoading ||
+      profileLoadFailed ||
+      !profile
+    ) {
+      return;
+    }
+
+    setProfileUsername(profile?.username || '');
+    setProfileDisplayName(profile?.display_name || '');
+    setProfileEditing(!profile?.username);
+    setProfileError('');
+  }, [
+    profile?.display_name,
+    profile?.username,
+    profileLoadFailed,
+    profileLoading,
+    session?.user?.id,
+    visible,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -219,6 +259,60 @@ export default function AccountPanel({
     }
   };
 
+  const handleSaveProfile = async () => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      return;
+    }
+
+    setProfileBusy(true);
+    setProfileMessage('');
+    setProfileError('');
+    try {
+      const nextProfile = await updateOwnProfile({
+        displayName: profileDisplayName,
+        locale: language,
+        userId,
+        username: profileUsername,
+      });
+      onProfileChange(nextProfile);
+      setProfileUsername(nextProfile.username || '');
+      setProfileDisplayName(nextProfile.display_name || '');
+      setProfileEditing(false);
+      setProfileMessage(strings.profileSaved);
+    } catch (error) {
+      const errorCode = error?.code || '';
+      const errorText = error?.message || '';
+      if (
+        errorCode === '23505' ||
+        errorText.includes('username_taken')
+      ) {
+        setProfileError(strings.usernameTaken);
+      } else if (
+        errorCode === 'invalid_username' ||
+        errorText.includes('invalid_username')
+      ) {
+        setProfileError(strings.usernameInvalid);
+      } else if (
+        errorCode === 'invalid_display_name' ||
+        errorText.includes('invalid_display_name')
+      ) {
+        setProfileError(strings.displayNameInvalid);
+      } else {
+        setProfileError(strings.profileSaveError);
+      }
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const cancelProfileEditing = () => {
+    setProfileUsername(profile?.username || '');
+    setProfileDisplayName(profile?.display_name || '');
+    setProfileEditing(false);
+    setProfileError('');
+  };
+
   const handleDeleteAccount = async () => {
     setBusy(true);
     setMessage('');
@@ -231,6 +325,18 @@ export default function AccountPanel({
       setBusy(false);
     }
   };
+
+  const profileTitle =
+    profile?.display_name ||
+    (profile?.username ? `@${profile.username}` : strings.signedIn);
+  const profileInitial = (
+    profile?.display_name ||
+    profile?.username ||
+    session?.user?.email ||
+    '?'
+  )
+    .slice(0, 1)
+    .toUpperCase();
 
   return (
     <View style={styles.overlay}>
@@ -265,12 +371,160 @@ export default function AccountPanel({
             ) : session ? (
               <View>
                 <View style={styles.profileMark}>
-                  <Text style={styles.profileMarkText}>
-                    {(session.user.email || '?').slice(0, 1).toUpperCase()}
-                  </Text>
+                  <Text style={styles.profileMarkText}>{profileInitial}</Text>
                 </View>
-                <Text style={styles.centerTitle}>{strings.signedIn}</Text>
+                <Text style={styles.centerTitle}>{profileTitle}</Text>
                 <Text numberOfLines={1} style={styles.accountEmail}>{session.user.email}</Text>
+                <View style={styles.profileSection}>
+                  <View style={styles.profileSectionHeader}>
+                    <Text style={styles.profileSectionLabel}>{strings.profile}</Text>
+                    {!profileEditing && !profileLoading ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        disabled={profileBusy}
+                        onPress={() => {
+                          setProfileEditing(true);
+                          setProfileMessage('');
+                          setProfileError('');
+                        }}
+                        style={({ pressed }) => [
+                          styles.profileEditButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={styles.profileEditText}>
+                          {strings.editProfile}
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                  {profileLoading ? (
+                    <View style={styles.statsLoadingState}>
+                      <ActivityIndicator color="#1fa7a0" size="small" />
+                      <Text style={styles.helperText}>
+                        {strings.profileLoading}
+                      </Text>
+                    </View>
+                  ) : profileLoadFailed ? (
+                    <View style={styles.profileErrorState}>
+                      <Text style={styles.errorText}>
+                        {strings.profileLoadError}
+                      </Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        onPress={onProfileRetry}
+                        style={({ pressed }) => [
+                          styles.profileRetryButton,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <Text style={styles.profileRetryText}>
+                          {strings.profileRetry}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : profileEditing ? (
+                    <View>
+                      <Text style={styles.profileInputLabel}>
+                        {strings.username}
+                      </Text>
+                      <TextInput
+                        autoCapitalize="none"
+                        autoComplete="username-new"
+                        autoCorrect={false}
+                        editable={!profileBusy}
+                        maxLength={24}
+                        onChangeText={setProfileUsername}
+                        placeholder={strings.usernamePlaceholder}
+                        placeholderTextColor="#8a949d"
+                        returnKeyType="next"
+                        style={styles.input}
+                        textContentType="username"
+                        value={profileUsername}
+                      />
+                      <Text style={styles.profileHelp}>
+                        {strings.usernameHelp}
+                      </Text>
+                      <Text style={styles.profileInputLabel}>
+                        {strings.displayName}
+                      </Text>
+                      <TextInput
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        editable={!profileBusy}
+                        maxLength={40}
+                        onChangeText={setProfileDisplayName}
+                        onSubmitEditing={handleSaveProfile}
+                        placeholder={strings.displayNamePlaceholder}
+                        placeholderTextColor="#8a949d"
+                        returnKeyType="done"
+                        style={styles.input}
+                        value={profileDisplayName}
+                      />
+                      {profileError ? (
+                        <Text style={styles.errorText}>{profileError}</Text>
+                      ) : null}
+                      <View style={styles.profileActions}>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={profileBusy}
+                          onPress={cancelProfileEditing}
+                          style={({ pressed }) => [
+                            styles.cancelButton,
+                            profileBusy && styles.disabled,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <Text style={styles.cancelText}>
+                            {strings.cancel}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={profileBusy}
+                          onPress={handleSaveProfile}
+                          style={({ pressed }) => [
+                            styles.profileSaveButton,
+                            profileBusy && styles.disabled,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          {profileBusy ? (
+                            <ActivityIndicator color="#ffffff" />
+                          ) : (
+                            <Text style={styles.profileSaveText}>
+                              {strings.saveProfile}
+                            </Text>
+                          )}
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : profile ? (
+                    <View style={styles.profileValues}>
+                      <View style={styles.profileValueRow}>
+                        <Text style={styles.profileValueLabel}>
+                          {strings.username}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.profileValue}>
+                          {profile.username
+                            ? `@${profile.username}`
+                            : strings.notSet}
+                        </Text>
+                      </View>
+                      <View style={styles.profileValueRow}>
+                        <Text style={styles.profileValueLabel}>
+                          {strings.displayName}
+                        </Text>
+                        <Text numberOfLines={1} style={styles.profileValue}>
+                          {profile.display_name || strings.notSet}
+                        </Text>
+                      </View>
+                    </View>
+                  ) : null}
+                  {profileMessage ? (
+                    <Text style={styles.successText}>{profileMessage}</Text>
+                  ) : null}
+                </View>
                 <View style={styles.cloudRow}>
                   <Text style={styles.cloudIcon}>✓</Text>
                   <View style={styles.cloudCopy}>
@@ -725,6 +979,101 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginTop: 5,
     textAlign: 'center',
+  },
+  profileSection: {
+    borderTopColor: '#d8e2e8',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 18,
+    paddingTop: 14,
+  },
+  profileSectionHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  profileSectionLabel: {
+    color: '#68737d',
+    fontSize: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  profileEditButton: {
+    minHeight: 30,
+    paddingHorizontal: 4,
+    justifyContent: 'center',
+  },
+  profileEditText: {
+    color: '#147b76',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  profileInputLabel: {
+    color: '#20242a',
+    fontSize: 11,
+    fontWeight: '900',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  profileHelp: {
+    color: '#68737d',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 14,
+    marginTop: 5,
+  },
+  profileErrorState: {
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  profileRetryButton: {
+    justifyContent: 'center',
+    minHeight: 34,
+    paddingHorizontal: 2,
+  },
+  profileRetryText: {
+    color: '#147b76',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  profileActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+  profileSaveButton: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderRadius: 8,
+    flex: 1.35,
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  profileSaveText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  profileValues: {
+    gap: 8,
+  },
+  profileValueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    minHeight: 26,
+  },
+  profileValueLabel: {
+    color: '#68737d',
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  profileValue: {
+    color: '#20242a',
+    flex: 1.6,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
   },
   cloudRow: {
     alignItems: 'center',

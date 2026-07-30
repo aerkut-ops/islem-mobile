@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import AccountPanel from './src/components/AccountPanel';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
+import { loadOwnProfile } from './src/services/profileService';
 import {
   handleAuthCallback,
   subscribeToAuthChanges,
@@ -350,6 +351,23 @@ const STRINGS = {
       close: 'Hesap ekranını kapat',
       loading: 'Oturum kontrol ediliyor...',
       signedIn: 'Oturum açık',
+      profile: 'Profil',
+      profileLoading: 'Profil yükleniyor...',
+      profileLoadError: 'Profil bilgileri şu anda yüklenemedi.',
+      profileRetry: 'Tekrar dene',
+      editProfile: 'Düzenle',
+      saveProfile: 'Profili kaydet',
+      profileSaved: 'Profilin kaydedildi.',
+      profileSaveError: 'Profil kaydedilemedi. Lütfen tekrar dene.',
+      username: 'Kullanıcı adı',
+      usernamePlaceholder: 'ornek_oyuncu',
+      usernameHelp: '3-24 karakter: küçük İngilizce harf, rakam veya alt çizgi.',
+      usernameInvalid: 'Geçerli bir kullanıcı adı yaz.',
+      usernameTaken: 'Bu kullanıcı adı başka bir oyuncu tarafından kullanılıyor.',
+      displayName: 'Görünen ad',
+      displayNamePlaceholder: 'Adın veya oyun adın',
+      displayNameInvalid: 'Görünen ad en fazla 40 karakter olabilir.',
+      notSet: 'Belirlenmedi',
       cloudReady: 'Bulut kaydı hazır',
       cloudText: 'Yeni oyun sonuçların bu hesaba güvenle eşitlenir.',
       cloudStats: 'Bulut istatistikleri',
@@ -692,6 +710,23 @@ const STRINGS = {
       close: 'Close account screen',
       loading: 'Checking session...',
       signedIn: 'Signed in',
+      profile: 'Profile',
+      profileLoading: 'Loading profile...',
+      profileLoadError: 'Profile information could not be loaded right now.',
+      profileRetry: 'Try again',
+      editProfile: 'Edit',
+      saveProfile: 'Save profile',
+      profileSaved: 'Your profile was saved.',
+      profileSaveError: 'The profile could not be saved. Please try again.',
+      username: 'Username',
+      usernamePlaceholder: 'example_player',
+      usernameHelp: '3-24 characters: lowercase English letters, numbers, or underscore.',
+      usernameInvalid: 'Enter a valid username.',
+      usernameTaken: 'This username is already used by another player.',
+      displayName: 'Display name',
+      displayNamePlaceholder: 'Your name or player name',
+      displayNameInvalid: 'The display name can contain up to 40 characters.',
+      notSet: 'Not set',
       cloudReady: 'Cloud sync ready',
       cloudText: 'New game results are safely synced to this account.',
       cloudStats: 'Cloud statistics',
@@ -899,6 +934,10 @@ export default function App() {
   const [accountVisible, setAccountVisible] = useState(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -988,6 +1027,43 @@ export default function App() {
   useEffect(() => {
     loadBestScores().then(setBestScores);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+
+    setProfile(null);
+    setProfileLoadFailed(false);
+    if (!userId) {
+      setProfileLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setProfileLoading(true);
+    loadOwnProfile(userId)
+      .then((nextProfile) => {
+        if (active) {
+          setProfile(nextProfile);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setProfile(null);
+          setProfileLoadFailed(true);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setProfileLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [profileReloadKey, session?.user?.id]);
 
   useEffect(() => {
     let active = true;
@@ -1643,6 +1719,7 @@ export default function App() {
             onStartPractice={(difficulty) => startNewGame(difficulty)}
             onStartTutorial={() => startNewGame('paper')}
             onStartWeekly={startWeeklyGame}
+            profile={profile}
             progress={progress}
             session={session}
             strings={t}
@@ -1873,6 +1950,7 @@ export default function App() {
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
           progress={progress}
+          profile={profile}
           session={session}
           soundEnabled={soundEnabled}
           strings={t}
@@ -1892,6 +1970,11 @@ export default function App() {
           language={language}
           loading={authLoading}
           onClose={closeAccount}
+          onProfileChange={setProfile}
+          onProfileRetry={() => setProfileReloadKey((value) => value + 1)}
+          profile={profile}
+          profileLoadFailed={profileLoadFailed}
+          profileLoading={profileLoading}
           session={session}
           strings={t.account}
           visible={accountVisible}
@@ -2394,6 +2477,7 @@ function HomeScreen({
   onStartPractice,
   onStartTutorial,
   onStartWeekly,
+  profile,
   progress,
   session,
   strings,
@@ -2412,6 +2496,7 @@ function HomeScreen({
           onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
           session={session}
           strings={strings}
           title={strings.home.trainingPageTitle}
@@ -2449,6 +2534,7 @@ function HomeScreen({
           onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
           session={session}
           strings={strings}
           title={strings.home.dailyPageTitle}
@@ -2486,6 +2572,7 @@ function HomeScreen({
           onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
           session={session}
           strings={strings}
           title={strings.home.statsTitle}
@@ -2516,6 +2603,7 @@ function HomeScreen({
           onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
           session={session}
           strings={strings}
           title={strings.home.weeklyPageTitle}
@@ -2561,6 +2649,7 @@ function HomeScreen({
           onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
           session={session}
           strings={strings}
           title={strings.home.challengePageTitle}
@@ -2594,7 +2683,12 @@ function HomeScreen({
           </Text>
         </View>
         <View style={styles.homeHeaderActions}>
-          <AccountButton onPress={onOpenAccount} session={session} strings={strings.account} />
+          <AccountButton
+            onPress={onOpenAccount}
+            profile={profile}
+            session={session}
+            strings={strings.account}
+          />
           <StreakBadge
             completed={todayDone}
             count={progress.streak.current}
@@ -2642,7 +2736,17 @@ function HomeScreen({
   );
 }
 
-function HomePageHeader({ onBack, onOpenAccount, onOpenStreak, progress, session, strings, title, todayDone }) {
+function HomePageHeader({
+  onBack,
+  onOpenAccount,
+  onOpenStreak,
+  profile,
+  progress,
+  session,
+  strings,
+  title,
+  todayDone,
+}) {
   return (
     <View style={styles.homePageHeader}>
       <View style={styles.homePageTitleBlock}>
@@ -2659,7 +2763,12 @@ function HomePageHeader({ onBack, onOpenAccount, onOpenStreak, progress, session
         </Text>
       </View>
       <View style={styles.homeHeaderActions}>
-        <AccountButton onPress={onOpenAccount} session={session} strings={strings.account} />
+        <AccountButton
+          onPress={onOpenAccount}
+          profile={profile}
+          session={session}
+          strings={strings.account}
+        />
         <StreakBadge
           completed={todayDone}
           count={progress.streak.current}
@@ -2671,8 +2780,15 @@ function HomePageHeader({ onBack, onOpenAccount, onOpenStreak, progress, session
   );
 }
 
-function AccountButton({ onPress, session, strings }) {
-  const label = session?.user?.email?.slice(0, 1).toUpperCase() || strings.icon;
+function AccountButton({ onPress, profile, session, strings }) {
+  const label = (
+    profile?.display_name ||
+    profile?.username ||
+    session?.user?.email ||
+    strings.icon
+  )
+    .slice(0, 1)
+    .toUpperCase();
 
   return (
     <Pressable
@@ -2898,6 +3014,7 @@ function SettingsPanel({
   onOpenAccount,
   onSelectDifficulty,
   onToggleSound,
+  profile,
   progress,
   session,
   soundEnabled,
@@ -2973,7 +3090,10 @@ function SettingsPanel({
               <View style={styles.settingCopy}>
                 <Text style={styles.settingTitle}>{strings.account.title}</Text>
                 <Text numberOfLines={1} style={styles.settingSubtitle}>
-                  {session?.user?.email || strings.account.guestShort}
+                  {profile?.display_name ||
+                    (profile?.username ? `@${profile.username}` : null) ||
+                    session?.user?.email ||
+                    strings.account.guestShort}
                 </Text>
               </View>
               <Text style={styles.settingValue}>→</Text>
