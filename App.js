@@ -21,6 +21,7 @@ import {
   View,
 } from 'react-native';
 import AccountPanel from './src/components/AccountPanel';
+import FriendsPanel from './src/components/FriendsPanel';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
 import { loadOwnProfile } from './src/services/profileService';
 import {
@@ -419,6 +420,48 @@ const STRINGS = {
       buttonA11y: 'Hesap ve profil ekranını aç',
       guestShort: 'Misafir',
     },
+    friends: {
+      icon: 'A',
+      eyebrow: 'Çevrimiçi oyuncular',
+      title: 'Arkadaşlar',
+      close: 'Arkadaşlar ekranını kapat',
+      closeAction: 'Kapat',
+      settingsSubtitle: 'Oyuncuları bul ve arkadaş ekle',
+      loadingAccount: 'Oturum kontrol ediliyor...',
+      loading: 'Arkadaşların yükleniyor...',
+      unavailableTitle: 'Arkadaş sistemi hazırlanıyor',
+      unavailableText: 'Çevrimiçi bağlantı şu anda kullanılamıyor.',
+      accountRequiredTitle: 'Bu özellik için hesap gerekli',
+      accountRequiredText: 'Oyuncu bulmak ve arkadaş eklemek için hesabına giriş yap.',
+      signIn: 'Giriş yap',
+      profileRequiredTitle: 'Önce profilini tamamla',
+      profileRequiredText: 'Diğer oyuncuların seni bulabilmesi için bir kullanıcı adı seç.',
+      openProfile: 'Profili tamamla',
+      searchLabel: 'Oyuncu ara',
+      searchPlaceholder: '@kullanici_adi',
+      search: 'Ara',
+      searchHint: 'Kullanıcı adı veya görünen ad ile ara.',
+      invalidSearch: 'Aramak için en az 2 karakter yaz.',
+      searchError: 'Oyuncu araması yapılamadı. Lütfen tekrar dene.',
+      loadError: 'Arkadaşların şu anda yüklenemedi.',
+      actionError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
+      retry: 'Tekrar dene',
+      searchResults: 'Arama sonuçları',
+      incoming: 'Gelen istekler',
+      outgoing: 'Gönderilen istekler',
+      list: 'Arkadaşların',
+      emptySearch: 'Bu aramayla eşleşen oyuncu bulunamadı.',
+      emptyIncoming: 'Bekleyen arkadaşlık isteğin yok.',
+      emptyFriends: 'Henüz arkadaşın yok. Yukarıdan bir oyuncu ara.',
+      add: 'Ekle',
+      sent: 'Gönderildi',
+      accept: 'Kabul',
+      decline: 'Reddet',
+      cancel: 'İptal',
+      remove: 'Sil',
+      removeTitle: 'Arkadaşı sil',
+      removeMessage: (name) => `${name} arkadaşlarından silinsin mi?`,
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Oyun modu seç',
@@ -778,6 +821,48 @@ const STRINGS = {
       buttonA11y: 'Open account and profile',
       guestShort: 'Guest',
     },
+    friends: {
+      icon: 'F',
+      eyebrow: 'Online players',
+      title: 'Friends',
+      close: 'Close friends screen',
+      closeAction: 'Close',
+      settingsSubtitle: 'Find players and add friends',
+      loadingAccount: 'Checking session...',
+      loading: 'Loading friends...',
+      unavailableTitle: 'Friends are being prepared',
+      unavailableText: 'The online connection is unavailable right now.',
+      accountRequiredTitle: 'An account is required',
+      accountRequiredText: 'Sign in to find players and add friends.',
+      signIn: 'Sign in',
+      profileRequiredTitle: 'Complete your profile first',
+      profileRequiredText: 'Choose a username so other players can find you.',
+      openProfile: 'Complete profile',
+      searchLabel: 'Find a player',
+      searchPlaceholder: '@username',
+      search: 'Search',
+      searchHint: 'Search by username or display name.',
+      invalidSearch: 'Enter at least 2 characters to search.',
+      searchError: 'Player search failed. Please try again.',
+      loadError: 'Your friends could not be loaded right now.',
+      actionError: 'The action could not be completed. Please try again.',
+      retry: 'Try again',
+      searchResults: 'Search results',
+      incoming: 'Incoming requests',
+      outgoing: 'Sent requests',
+      list: 'Your friends',
+      emptySearch: 'No players matched this search.',
+      emptyIncoming: 'You have no pending friend requests.',
+      emptyFriends: 'No friends yet. Search for a player above.',
+      add: 'Add',
+      sent: 'Sent',
+      accept: 'Accept',
+      decline: 'Decline',
+      cancel: 'Cancel',
+      remove: 'Remove',
+      removeTitle: 'Remove friend',
+      removeMessage: (name) => `Remove ${name} from your friends?`,
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Choose a mode',
@@ -932,6 +1017,7 @@ export default function App() {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [streakVisible, setStreakVisible] = useState(false);
   const [accountVisible, setAccountVisible] = useState(false);
+  const [friendsVisible, setFriendsVisible] = useState(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [profile, setProfile] = useState(null);
@@ -1589,12 +1675,24 @@ export default function App() {
   const openAccount = useCallback(() => {
     playSound('tap');
     setSettingsVisible(false);
+    setFriendsVisible(false);
     setAccountVisible(true);
   }, [playSound]);
 
   const closeAccount = useCallback(() => {
     playSound('tap');
     setAccountVisible(false);
+  }, [playSound]);
+
+  const openFriends = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setFriendsVisible(true);
+  }, [playSound]);
+
+  const closeFriends = useCallback(() => {
+    playSound('tap');
+    setFriendsVisible(false);
   }, [playSound]);
 
   const closeCompletion = useCallback(() => {
@@ -1676,6 +1774,7 @@ export default function App() {
     dragStateRef.current = null;
     setCompletionSummary(null);
     setSettingsVisible(false);
+    setFriendsVisible(false);
     setHomePage('home');
     setHomeVisible(true);
     playSound('tap');
@@ -1947,6 +2046,7 @@ export default function App() {
           onClose={closeSettings}
           onGoHome={showHome}
           onOpenAccount={openAccount}
+          onOpenFriends={openFriends}
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
           progress={progress}
@@ -1978,6 +2078,16 @@ export default function App() {
           session={session}
           strings={t.account}
           visible={accountVisible}
+        />
+        <FriendsPanel
+          configured={isSupabaseConfigured}
+          loading={authLoading || profileLoading}
+          onClose={closeFriends}
+          onOpenAccount={openAccount}
+          profile={profile}
+          session={session}
+          strings={t.friends}
+          visible={friendsVisible}
         />
         </View>
       </SafeAreaView>
@@ -3012,6 +3122,7 @@ function SettingsPanel({
   onClose,
   onGoHome,
   onOpenAccount,
+  onOpenFriends,
   onSelectDifficulty,
   onToggleSound,
   profile,
@@ -3094,6 +3205,26 @@ function SettingsPanel({
                     (profile?.username ? `@${profile.username}` : null) ||
                     session?.user?.email ||
                     strings.account.guestShort}
+                </Text>
+              </View>
+              <Text style={styles.settingValue}>→</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel={strings.friends.title}
+              accessibilityRole="button"
+              onPress={onOpenFriends}
+              style={({ pressed }) => [
+                styles.settingRow,
+                styles.settingRowGap,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.settingIcon}>{strings.friends.icon}</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>{strings.friends.title}</Text>
+                <Text numberOfLines={1} style={styles.settingSubtitle}>
+                  {strings.friends.settingsSubtitle}
                 </Text>
               </View>
               <Text style={styles.settingValue}>→</Text>
