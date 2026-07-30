@@ -41,3 +41,32 @@ export function groupFriendConnections(rows) {
 
   return grouped;
 }
+
+function normalizeNonNegativeInteger(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return 0;
+  }
+  return Math.max(0, Math.floor(number));
+}
+
+export function normalizeFriendProfile(row) {
+  if (!row?.player_id || !row?.username) {
+    return null;
+  }
+
+  return {
+    player_id: row.player_id,
+    username: String(row.username),
+    display_name: row.display_name ? String(row.display_name) : null,
+    total_score: normalizeNonNegativeInteger(row.total_score),
+    best_score: normalizeNonNegativeInteger(row.best_score),
+    games_completed: normalizeNonNegativeInteger(row.games_completed),
+    best_streak: normalizeNonNegativeInteger(row.best_streak),
+    weekly_score: normalizeNonNegativeInteger(row.weekly_score),
+  };
+}
+
+export function normalizeIncomingFriendRequestCount(value) {
+  return normalizeNonNegativeInteger(value);
+}

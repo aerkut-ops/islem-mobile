@@ -22,6 +22,7 @@ import {
 } from 'react-native';
 import AccountPanel from './src/components/AccountPanel';
 import FriendsPanel from './src/components/FriendsPanel';
+import { loadIncomingFriendRequestCount } from './src/services/friendService';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
 import { loadOwnProfile } from './src/services/profileService';
 import {
@@ -465,6 +466,18 @@ const STRINGS = {
       remove: 'Sil',
       removeTitle: 'Arkadaşı sil',
       removeMessage: (name) => `${name} arkadaşlarından silinsin mi?`,
+      pendingRequests: (count) => `${count} bekleyen arkadaşlık isteği`,
+      openPlayerProfile: (name) => `${name} oyuncu profilini aç`,
+      profileEyebrow: 'Arkadaş profili',
+      profileTitle: 'Oyuncu özeti',
+      closeProfile: 'Arkadaş profilini kapat',
+      profileLoading: 'Oyuncu bilgileri yükleniyor...',
+      profileLoadError: 'Oyuncu profili şu anda yüklenemedi.',
+      weeklyScore: 'Bu hafta',
+      totalScore: 'Toplam puan',
+      gamesCompleted: 'Tamamlanan oyun',
+      bestScore: 'En iyi puan',
+      bestStreak: 'En iyi seri',
     },
     home: {
       title: 'İşlem',
@@ -869,6 +882,18 @@ const STRINGS = {
       remove: 'Remove',
       removeTitle: 'Remove friend',
       removeMessage: (name) => `Remove ${name} from your friends?`,
+      pendingRequests: (count) => `${count} pending friend requests`,
+      openPlayerProfile: (name) => `Open ${name}'s player profile`,
+      profileEyebrow: 'Friend profile',
+      profileTitle: 'Player summary',
+      closeProfile: 'Close friend profile',
+      profileLoading: 'Loading player information...',
+      profileLoadError: 'The player profile could not be loaded right now.',
+      weeklyScore: 'This week',
+      totalScore: 'Total score',
+      gamesCompleted: 'Games completed',
+      bestScore: 'Best score',
+      bestStreak: 'Best streak',
     },
     home: {
       title: 'İşlem',
@@ -1034,6 +1059,8 @@ export default function App() {
   const [friendWeeklyLeaderboard, setFriendWeeklyLeaderboard] = useState(null);
   const [friendLeaderboardLoading, setFriendLeaderboardLoading] = useState(false);
   const [friendLeaderboardError, setFriendLeaderboardError] = useState('');
+  const [incomingFriendRequestCount, setIncomingFriendRequestCount] =
+    useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -1112,6 +1139,31 @@ export default function App() {
     t.settings.you,
     weeklyScore,
   ]);
+
+  const refreshIncomingFriendRequestCount = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setIncomingFriendRequestCount(0);
+      return;
+    }
+
+    try {
+      const count = await loadIncomingFriendRequestCount();
+      if (activeUserIdRef.current === userId) {
+        setIncomingFriendRequestCount(count);
+      }
+    } catch {
+      // A notification refresh must not interrupt offline or guest play.
+    }
+  }, []);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setIncomingFriendRequestCount(0);
+      return;
+    }
+    refreshIncomingFriendRequestCount(userId);
+  }, [refreshIncomingFriendRequestCount, session?.user?.id]);
 
   useEffect(() => {
     let active = true;
@@ -1349,6 +1401,7 @@ export default function App() {
         return;
       }
       refreshCloudProgress(userId);
+      refreshIncomingFriendRequestCount(userId);
     };
 
     const appStateSubscription = AppState.addEventListener(
@@ -1361,7 +1414,11 @@ export default function App() {
     );
 
     return () => appStateSubscription.remove();
-  }, [refreshCloudProgress, session?.user?.id]);
+  }, [
+    refreshCloudProgress,
+    refreshIncomingFriendRequestCount,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
     if (game.difficulty !== 'paper') {
@@ -1888,6 +1945,7 @@ export default function App() {
         {homeVisible ? (
           <HomeScreen
             challengeRoom={challengeRoom}
+            friendRequestCount={incomingFriendRequestCount}
             homePage={homePage}
             league={currentLeague}
             onBackHome={showHomeMenu}
@@ -2130,6 +2188,7 @@ export default function App() {
         )}
         <SettingsPanel
           currentDifficulty={game.difficulty}
+          friendRequestCount={incomingFriendRequestCount}
           leaderboard={weeklyLeaderboard}
           leaderboardError={friendLeaderboardError}
           leaderboardLoading={friendLeaderboardLoading}
@@ -2175,6 +2234,7 @@ export default function App() {
           configured={isSupabaseConfigured}
           loading={authLoading || profileLoading}
           onClose={closeFriends}
+          onIncomingCountChange={setIncomingFriendRequestCount}
           onOpenAccount={openAccount}
           profile={profile}
           session={session}
@@ -2660,6 +2720,7 @@ function AnimatedGlow({ style }) {
 
 function HomeScreen({
   challengeRoom,
+  friendRequestCount,
   homePage,
   league,
   onBackHome,
@@ -2927,6 +2988,14 @@ function HomeScreen({
           title={strings.home.tutorialTitle}
         />
         <HomeModeTile
+          accessibilityLabel={
+            friendRequestCount > 0
+              ? `${strings.actions.settings}, ${strings.friends.pendingRequests(
+                  friendRequestCount,
+                )}`
+              : strings.actions.settings
+          }
+          badge={friendRequestCount}
           icon="⚙"
           onPress={onOpenSettings}
           title={strings.actions.settings}
@@ -3008,13 +3077,21 @@ function AccountButton({ onPress, profile, session, strings }) {
   );
 }
 
-function HomeModeTile({ icon, onPress, title }) {
+function HomeModeTile({ accessibilityLabel, badge = 0, icon, onPress, title }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel || title}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.homeModeTile, pressed && styles.pressed]}
     >
+      {badge > 0 ? (
+        <View style={styles.homeModeBadge}>
+          <Text style={styles.notificationBadgeText}>
+            {Math.min(badge, 99)}
+          </Text>
+        </View>
+      ) : null}
       <Text style={styles.homeModeIcon}>{icon}</Text>
       <Text numberOfLines={2} style={styles.homeModeTitle}>{title}</Text>
     </Pressable>
@@ -3209,6 +3286,7 @@ function StreakPanel({ onClose, progress, strings, todayDone, visible }) {
 
 function SettingsPanel({
   currentDifficulty,
+  friendRequestCount,
   leaderboard,
   leaderboardError,
   leaderboardLoading,
@@ -3317,7 +3395,13 @@ function SettingsPanel({
             </Pressable>
 
             <Pressable
-              accessibilityLabel={strings.friends.title}
+              accessibilityLabel={
+                friendRequestCount > 0
+                  ? `${strings.friends.title}, ${strings.friends.pendingRequests(
+                      friendRequestCount,
+                    )}`
+                  : strings.friends.title
+              }
               accessibilityRole="button"
               onPress={onOpenFriends}
               style={({ pressed }) => [
@@ -3333,7 +3417,16 @@ function SettingsPanel({
                   {strings.friends.settingsSubtitle}
                 </Text>
               </View>
-              <Text style={styles.settingValue}>→</Text>
+              <View style={styles.settingValueGroup}>
+                {friendRequestCount > 0 ? (
+                  <View style={styles.settingNotificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {Math.min(friendRequestCount, 99)}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={styles.settingValue}>→</Text>
+              </View>
             </Pressable>
 
             <Text style={styles.subsectionTitle}>{strings.settings.chooseDifficulty}</Text>
@@ -4763,6 +4856,21 @@ const styles = StyleSheet.create({
     minHeight: 132,
     minWidth: 132,
     padding: 14,
+    position: 'relative',
+  },
+  homeModeBadge: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 2,
+    height: 24,
+    justifyContent: 'center',
+    minWidth: 24,
+    paddingHorizontal: 5,
+    position: 'absolute',
+    right: 10,
+    top: 10,
   },
   homeModeIcon: {
     color: '#147b76',
@@ -5675,6 +5783,25 @@ const styles = StyleSheet.create({
   settingValue: {
     color: '#147b76',
     fontSize: 12,
+    fontWeight: '900',
+  },
+  settingValueGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  settingNotificationBadge: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderRadius: 11,
+    height: 22,
+    justifyContent: 'center',
+    minWidth: 22,
+    paddingHorizontal: 5,
+  },
+  notificationBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
     fontWeight: '900',
   },
   subsectionTitle: {

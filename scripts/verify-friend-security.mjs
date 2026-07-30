@@ -164,6 +164,47 @@ async function listWeeklyLeaderboard(context, session, weekKey) {
   return rows;
 }
 
+async function getIncomingRequestCount(context, session) {
+  const count = await rpc({
+    ...context,
+    session,
+    functionName: 'get_incoming_friend_request_count',
+  });
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error('Incoming friend request count is invalid.');
+  }
+  return count;
+}
+
+async function getFriendProfile(context, session, playerId) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'get_friend_profile',
+    parameters: { p_player_id: playerId },
+  });
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error('Friend profile returned an unexpected response.');
+  }
+  return rows[0];
+}
+
+async function assertFriendProfileDenied(context, session, playerId) {
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/rpc/get_friend_profile`,
+    {
+      method: 'POST',
+      headers: authHeaders(context.publishableKey, session),
+      body: JSON.stringify({ p_player_id: playerId }),
+    },
+  );
+  if (![400, 401, 403].includes(response.status)) {
+    throw new Error(
+      `${session.label} can read a profile without an accepted friendship.`,
+    );
+  }
+}
+
 function getCurrentWeekKey() {
   const date = new Date();
   const day = date.getDay() || 7;
@@ -224,6 +265,8 @@ async function assertDirectTablesDenied(context, session) {
 
 async function assertAnonymousRpcDenied(context) {
   for (const functionName of [
+    'get_friend_profile',
+    'get_incoming_friend_request_count',
     'list_friend_connections',
     'list_friend_weekly_leaderboard',
   ]) {
@@ -235,7 +278,11 @@ async function assertAnonymousRpcDenied(context) {
           apikey: context.publishableKey,
           'Content-Type': 'application/json',
         },
-        body: '{}',
+        body: JSON.stringify(
+          functionName === 'get_friend_profile'
+            ? { p_player_id: null }
+            : {},
+        ),
       },
     );
     if (![401, 403].includes(response.status)) {
@@ -275,6 +322,17 @@ async function main() {
   await cleanTestRelationship(context, development, appReview);
 
   try {
+    const initialIncomingCount = await getIncomingRequestCount(
+      context,
+      appReview,
+    );
+    await assertFriendProfileDenied(
+      context,
+      development,
+      appReview.userId,
+    );
+    console.log('PASS  Non-friend profile access is denied.');
+
     const privateLeaderboard = await listWeeklyLeaderboard(
       context,
       development,
@@ -317,6 +375,12 @@ async function main() {
     if (sendResult !== 'sent') {
       throw new Error(`Friend request returned ${String(sendResult)}.`);
     }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount + 1
+    ) {
+      throw new Error('Incoming request count did not increase after sending.');
+    }
 
     const duplicateResult = await rpc({
       ...context,
@@ -348,6 +412,12 @@ async function main() {
     if (cancelResult !== 'cancelled') {
       throw new Error('Friend request was not cancelled.');
     }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after cancelling.');
+    }
 
     await rpc({
       ...context,
@@ -375,6 +445,12 @@ async function main() {
     });
     if (declineResult !== 'declined') {
       throw new Error('Friend request was not declined.');
+    }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after declining.');
     }
     console.log('PASS  Friend requests can be cancelled and declined.');
 
@@ -406,6 +482,13 @@ async function main() {
     if (acceptResult !== 'accepted') {
       throw new Error('Friend request was not accepted.');
     }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after accepting.');
+    }
+    console.log('PASS  Incoming request count follows request state.');
 
     for (const [session, other] of [
       [development, appReview],
@@ -423,6 +506,37 @@ async function main() {
       }
     }
     console.log('PASS  Accepted friendships are visible to both participants.');
+
+    const safeProfileKeys = new Set([
+      'best_score',
+      'best_streak',
+      'display_name',
+      'games_completed',
+      'player_id',
+      'total_score',
+      'username',
+      'weekly_score',
+    ]);
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const friendProfile = await getFriendProfile(
+        context,
+        session,
+        other.userId,
+      );
+      if (
+        friendProfile.player_id !== other.userId ||
+        friendProfile.username !== other.username ||
+        Object.keys(friendProfile).some((key) => !safeProfileKeys.has(key))
+      ) {
+        throw new Error(
+          `${session.label} friend profile is incomplete or exposes private fields.`,
+        );
+      }
+    }
+    console.log('PASS  Friend profiles expose only safe aggregate fields.');
 
     for (const [session, other] of [
       [development, appReview],
@@ -457,6 +571,7 @@ async function main() {
   if (finalRows.some((row) => row.player_id === appReview.userId)) {
     throw new Error('Security test did not clean up its test relationship.');
   }
+  await assertFriendProfileDenied(context, development, appReview.userId);
 
   const finalLeaderboard = await listWeeklyLeaderboard(
     context,

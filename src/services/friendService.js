@@ -1,4 +1,9 @@
-import { groupFriendConnections, validatePlayerSearch } from './friendValidation.mjs';
+import {
+  groupFriendConnections,
+  normalizeFriendProfile,
+  normalizeIncomingFriendRequestCount,
+  validatePlayerSearch,
+} from './friendValidation.mjs';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 export async function loadFriendConnections() {
@@ -10,6 +15,36 @@ export async function loadFriendConnections() {
   }
 
   return groupFriendConnections(data);
+}
+
+export async function loadFriendProfile(playerId) {
+  requireFriendService();
+
+  const { data, error } = await supabase.rpc('get_friend_profile', {
+    p_player_id: playerId,
+  });
+  if (error) {
+    throw error;
+  }
+
+  const profile = normalizeFriendProfile(Array.isArray(data) ? data[0] : data);
+  if (!profile) {
+    throw makeFriendError('friend_profile_unavailable');
+  }
+  return profile;
+}
+
+export async function loadIncomingFriendRequestCount() {
+  requireFriendService();
+
+  const { data, error } = await supabase.rpc(
+    'get_incoming_friend_request_count',
+  );
+  if (error) {
+    throw error;
+  }
+
+  return normalizeIncomingFriendRequestCount(data);
 }
 
 export async function searchPlayers(searchText) {

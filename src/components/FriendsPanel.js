@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +14,7 @@ import {
 import {
   cancelFriendRequest,
   loadFriendConnections,
+  loadFriendProfile,
   removeFriend,
   respondFriendRequest,
   searchPlayers,
@@ -30,6 +31,7 @@ export default function FriendsPanel({
   configured,
   loading,
   onClose,
+  onIncomingCountChange,
   onOpenAccount,
   profile,
   session,
@@ -44,6 +46,11 @@ export default function FriendsPanel({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchComplete, setSearchComplete] = useState(false);
   const [actionKey, setActionKey] = useState('');
+  const [selectedFriend, setSelectedFriend] = useState(null);
+  const [friendProfile, setFriendProfile] = useState(null);
+  const [friendProfileLoading, setFriendProfileLoading] = useState(false);
+  const [friendProfileError, setFriendProfileError] = useState('');
+  const friendProfileRequestRef = useRef(0);
 
   const canLoadFriends = Boolean(
     configured && session?.user?.id && profile?.username,
@@ -57,16 +64,19 @@ export default function FriendsPanel({
     setConnectionsLoading(true);
     setErrorMessage('');
     try {
-      setConnections(await loadFriendConnections());
+      const nextConnections = await loadFriendConnections();
+      setConnections(nextConnections);
+      onIncomingCountChange?.(nextConnections.incoming.length);
     } catch {
       setErrorMessage(strings.loadError);
     } finally {
       setConnectionsLoading(false);
     }
-  }, [canLoadFriends, strings.loadError]);
+  }, [canLoadFriends, onIncomingCountChange, strings.loadError]);
 
   useEffect(() => {
     if (!visible) {
+      friendProfileRequestRef.current += 1;
       setConnections(EMPTY_CONNECTIONS);
       setConnectionsLoading(false);
       setErrorMessage('');
@@ -75,6 +85,10 @@ export default function FriendsPanel({
       setSearchLoading(false);
       setSearchComplete(false);
       setActionKey('');
+      setSelectedFriend(null);
+      setFriendProfile(null);
+      setFriendProfileLoading(false);
+      setFriendProfileError('');
       return;
     }
 
@@ -114,9 +128,41 @@ export default function FriendsPanel({
 
     const [nextConnections, nextSearchResults] = await Promise.all(tasks);
     setConnections(nextConnections);
+    onIncomingCountChange?.(nextConnections.incoming.length);
     if (nextSearchResults) {
       setSearchResults(nextSearchResults);
     }
+  };
+
+  const openFriendProfile = async (player) => {
+    const requestId = friendProfileRequestRef.current + 1;
+    friendProfileRequestRef.current = requestId;
+    setSelectedFriend(player);
+    setFriendProfile(null);
+    setFriendProfileError('');
+    setFriendProfileLoading(true);
+    try {
+      const nextProfile = await loadFriendProfile(player.player_id);
+      if (friendProfileRequestRef.current === requestId) {
+        setFriendProfile(nextProfile);
+      }
+    } catch {
+      if (friendProfileRequestRef.current === requestId) {
+        setFriendProfileError(strings.profileLoadError);
+      }
+    } finally {
+      if (friendProfileRequestRef.current === requestId) {
+        setFriendProfileLoading(false);
+      }
+    }
+  };
+
+  const closeFriendProfile = () => {
+    friendProfileRequestRef.current += 1;
+    setSelectedFriend(null);
+    setFriendProfile(null);
+    setFriendProfileLoading(false);
+    setFriendProfileError('');
   };
 
   const runAction = async (key, action) => {
@@ -315,6 +361,7 @@ export default function FriendsPanel({
 
             <FriendSection
               emptyText={strings.emptyFriends}
+              onPlayerPress={openFriendProfile}
               rows={connections.friends}
               strings={strings}
               title={strings.list}
@@ -390,6 +437,16 @@ export default function FriendsPanel({
           {content}
         </View>
       </KeyboardAvoidingView>
+      {selectedFriend ? (
+        <FriendProfileCard
+          error={friendProfileError}
+          loading={friendProfileLoading}
+          onClose={closeFriendProfile}
+          onRetry={() => openFriendProfile(selectedFriend)}
+          player={friendProfile || selectedFriend}
+          strings={strings}
+        />
+      ) : null}
     </View>
   );
 }
@@ -422,7 +479,14 @@ function PanelState({
   );
 }
 
-function FriendSection({ children, emptyText, rows, title }) {
+function FriendSection({
+  children,
+  emptyText,
+  onPlayerPress,
+  rows,
+  strings,
+  title,
+}) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>
@@ -430,29 +494,160 @@ function FriendSection({ children, emptyText, rows, title }) {
         {rows.length > 0 ? ` · ${rows.length}` : ''}
       </Text>
       {rows.length > 0 ? (
-        rows.map((player) => (
-          <View key={`${title}-${player.player_id}`} style={styles.playerRow}>
-            <View style={styles.playerMark}>
-              <Text style={styles.playerMarkText}>
-                {(player.display_name || player.username || '?')
-                  .slice(0, 1)
-                  .toUpperCase()}
-              </Text>
+        rows.map((player) => {
+          const playerIdentity = (
+            <>
+              <View style={styles.playerMark}>
+                <Text style={styles.playerMarkText}>
+                  {(player.display_name || player.username || '?')
+                    .slice(0, 1)
+                    .toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.playerCopy}>
+                <Text numberOfLines={1} style={styles.playerName}>
+                  {player.display_name || `@${player.username}`}
+                </Text>
+                <Text numberOfLines={1} style={styles.username}>
+                  @{player.username}
+                </Text>
+              </View>
+            </>
+          );
+
+          return (
+            <View
+              key={`${title}-${player.player_id}`}
+              style={styles.playerRow}
+            >
+              {onPlayerPress ? (
+                <Pressable
+                  accessibilityLabel={strings.openPlayerProfile(
+                    player.display_name || `@${player.username}`,
+                  )}
+                  accessibilityRole="button"
+                  onPress={() => onPlayerPress(player)}
+                  style={({ pressed }) => [
+                    styles.playerIdentity,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  {playerIdentity}
+                </Pressable>
+              ) : (
+                <View style={styles.playerIdentity}>{playerIdentity}</View>
+              )}
+              {children(player)}
             </View>
-            <View style={styles.playerCopy}>
-              <Text numberOfLines={1} style={styles.playerName}>
-                {player.display_name || `@${player.username}`}
-              </Text>
-              <Text numberOfLines={1} style={styles.username}>
-                @{player.username}
-              </Text>
-            </View>
-            {children(player)}
-          </View>
-        ))
+          );
+        })
       ) : (
         <Text style={styles.emptyText}>{emptyText}</Text>
       )}
+    </View>
+  );
+}
+
+function FriendProfileCard({
+  error,
+  loading,
+  onClose,
+  onRetry,
+  player,
+  strings,
+}) {
+  const displayName = player.display_name || `@${player.username}`;
+
+  return (
+    <View style={styles.profileOverlay}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onClose}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.profileCard}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.eyebrow}>{strings.profileEyebrow}</Text>
+            <Text style={styles.title}>{strings.profileTitle}</Text>
+          </View>
+          <Pressable
+            accessibilityLabel={strings.closeProfile}
+            accessibilityRole="button"
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.closeButton,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.closeText}>×</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.profileIdentity}>
+          <View style={styles.profileMark}>
+            <Text style={styles.profileMarkText}>
+              {displayName.slice(0, 1).toUpperCase()}
+            </Text>
+          </View>
+          <View style={styles.profileIdentityCopy}>
+            <Text numberOfLines={1} style={styles.profileName}>
+              {displayName}
+            </Text>
+            <Text numberOfLines={1} style={styles.profileUsername}>
+              @{player.username}
+            </Text>
+          </View>
+        </View>
+
+        {loading ? (
+          <PanelState loading text={strings.profileLoading} />
+        ) : error ? (
+          <PanelState
+            actionLabel={strings.retry}
+            onAction={onRetry}
+            text={error}
+          />
+        ) : (
+          <View style={styles.profileStats}>
+            <ProfileStat
+              label={strings.weeklyScore}
+              value={player.weekly_score}
+            />
+            <ProfileStat
+              label={strings.totalScore}
+              value={player.total_score}
+            />
+            <ProfileStat
+              label={strings.gamesCompleted}
+              value={player.games_completed}
+            />
+            <ProfileStat
+              label={strings.bestScore}
+              value={player.best_score}
+            />
+            <ProfileStat
+              label={strings.bestStreak}
+              value={player.best_streak}
+            />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function ProfileStat({ label, value }) {
+  return (
+    <View style={styles.profileStat}>
+      <Text style={styles.profileStatLabel}>{label}</Text>
+      <Text
+        adjustsFontSizeToFit
+        numberOfLines={1}
+        style={styles.profileStatValue}
+      >
+        {value ?? 0}
+      </Text>
     </View>
   );
 }
@@ -572,6 +767,27 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     maxHeight: '90%',
     maxWidth: 520,
+    padding: 16,
+    width: '100%',
+  },
+  profileOverlay: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(32, 36, 42, 0.48)',
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    padding: 14,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 3,
+  },
+  profileCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: 440,
     padding: 16,
     width: '100%',
   },
@@ -696,6 +912,12 @@ const styles = StyleSheet.create({
     minHeight: 58,
     paddingVertical: 7,
   },
+  playerIdentity: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    minWidth: 0,
+  },
   playerMark: {
     alignItems: 'center',
     backgroundColor: '#d9f5f2',
@@ -724,6 +946,69 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     marginTop: 2,
+  },
+  profileIdentity: {
+    alignItems: 'center',
+    backgroundColor: '#f7f8fb',
+    borderRadius: 8,
+    flexDirection: 'row',
+    padding: 12,
+  },
+  profileMark: {
+    alignItems: 'center',
+    backgroundColor: '#d9f5f2',
+    borderRadius: 8,
+    height: 52,
+    justifyContent: 'center',
+    width: 52,
+  },
+  profileMarkText: {
+    color: '#147b76',
+    fontSize: 23,
+    fontWeight: '900',
+  },
+  profileIdentityCopy: {
+    flex: 1,
+    marginLeft: 12,
+    minWidth: 0,
+  },
+  profileName: {
+    color: '#20242a',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  profileUsername: {
+    color: '#68737d',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  profileStats: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+  profileStat: {
+    backgroundColor: '#f7f8fb',
+    borderColor: '#d8e2e8',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexBasis: '30%',
+    flexGrow: 1,
+    minWidth: 104,
+    padding: 10,
+  },
+  profileStatLabel: {
+    color: '#68737d',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  profileStatValue: {
+    color: '#20242a',
+    fontSize: 19,
+    fontWeight: '900',
+    marginTop: 3,
   },
   actions: {
     flexDirection: 'row',
