@@ -1,10 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCurrentSession, isSupabaseConfigured, supabase } from './supabaseClient';
+import {
+  getQueuedGameResultsForUser,
+  parseQueuedGameResults,
+  removeQueuedGameResult,
+  upsertQueuedGameResult,
+} from './gameResultQueue.mjs';
 
 const GAME_RESULT_QUEUE_KEY = 'islem-cloud-game-result-queue-v1';
-const MAX_QUEUED_RESULTS = 50;
-const QUEUE_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const MAX_FLUSH_PASSES = 4;
 let activeFlush = null;
+let queueMutation = Promise.resolve();
 
 export function buildGameResultPayload({ game, score, awardedScore, durationSeconds, hintUsedCount = 0, language = 'tr' }) {
   const finishedAt = new Date();
@@ -46,18 +52,35 @@ export async function submitGameResult(payload) {
     return { status: 'guest' };
   }
 
-  await flushQueuedGameResults();
-
-  const { error } = await supabase.rpc('submit_game_result', {
-    p_result: payload,
-  });
-
-  if (error) {
+  try {
     await enqueueGameResult(payload, session.user.id);
-    return { status: 'queued', error };
+  } catch (storageError) {
+    const { data, error } = await sendGameResult(payload);
+    return error
+      ? { status: 'failed', error, storageError }
+      : { status: 'synced', data };
   }
 
-  return { status: 'synced' };
+  let flushResult = await flushQueuedGameResults();
+  let pending = await isGameResultQueued(
+    session.user.id,
+    payload.client_result_id,
+  );
+
+  if (
+    pending &&
+    !flushResult.attemptedResultIds.includes(payload.client_result_id)
+  ) {
+    flushResult = await flushQueuedGameResults();
+    pending = await isGameResultQueued(
+      session.user.id,
+      payload.client_result_id,
+    );
+  }
+
+  return pending
+    ? { status: 'queued', error: flushResult.lastError }
+    : { status: 'synced' };
 }
 
 export async function flushQueuedGameResults() {
@@ -75,83 +98,145 @@ export async function flushQueuedGameResults() {
 
 async function performQueuedGameResultFlush() {
   if (!isSupabaseConfigured || !supabase) {
-    return { status: 'disabled', flushed: 0 };
+    return {
+      status: 'disabled',
+      flushed: 0,
+      remaining: 0,
+      attemptedResultIds: [],
+      lastError: null,
+    };
   }
 
   const session = await getCurrentSession();
   if (!session) {
-    return { status: 'guest', flushed: 0 };
+    return {
+      status: 'guest',
+      flushed: 0,
+      remaining: 0,
+      attemptedResultIds: [],
+      lastError: null,
+    };
   }
 
-  const queuedResults = await loadQueuedGameResults();
-  if (queuedResults.length === 0) {
-    return { status: 'empty', flushed: 0 };
-  }
-
-  const remaining = [];
+  const attemptedResultIds = new Set();
   let flushed = 0;
+  let lastError = null;
 
-  for (const queuedItem of queuedResults) {
-    if (queuedItem.user_id !== session.user.id) {
-      remaining.push(queuedItem);
-      continue;
+  for (let pass = 0; pass < MAX_FLUSH_PASSES; pass += 1) {
+    const queuedResults = await loadQueuedGameResults();
+    const pendingForUser = getQueuedGameResultsForUser(
+      queuedResults,
+      session.user.id,
+    ).filter(
+      (item) => !attemptedResultIds.has(item.payload.client_result_id),
+    );
+
+    if (pendingForUser.length === 0) {
+      break;
     }
 
-    const payload = queuedItem.payload;
-    const { error } = await supabase.rpc('submit_game_result', {
-      p_result: payload,
-    });
+    for (const queuedItem of pendingForUser) {
+      const payload = queuedItem.payload;
+      attemptedResultIds.add(payload.client_result_id);
+      const { error } = await sendGameResult(payload);
 
-    if (error) {
-      remaining.push(queuedItem);
-      continue;
+      if (error) {
+        lastError = error;
+        continue;
+      }
+
+      await deleteQueuedGameResult(
+        session.user.id,
+        payload.client_result_id,
+      );
+      flushed += 1;
     }
-
-    flushed += 1;
   }
 
-  await saveQueuedGameResults(remaining);
-  return { status: remaining.length > 0 ? 'partial' : 'synced', flushed };
+  const remaining = getQueuedGameResultsForUser(
+    await loadQueuedGameResults(),
+    session.user.id,
+  ).length;
+
+  return {
+    status:
+      remaining > 0
+        ? flushed > 0
+          ? 'partial'
+          : 'queued'
+        : flushed > 0
+          ? 'synced'
+          : 'empty',
+    flushed,
+    remaining,
+    attemptedResultIds: [...attemptedResultIds],
+    lastError,
+  };
 }
 
 async function enqueueGameResult(payload, userId) {
-  const queuedResults = await loadQueuedGameResults();
-  const withoutDuplicate = queuedResults.filter(
-    (item) => item.payload?.client_result_id !== payload.client_result_id,
-  );
-  const nextQueue = [
-    ...withoutDuplicate,
-    { payload, queued_at: new Date().toISOString(), user_id: userId },
-  ].slice(-MAX_QUEUED_RESULTS);
-  await saveQueuedGameResults(nextQueue);
+  return withQueueMutation(async () => {
+    const queuedResults = await loadQueuedGameResultsUnlocked();
+    await saveQueuedGameResults(
+      upsertQueuedGameResult(queuedResults, payload, userId),
+    );
+  });
 }
 
 async function loadQueuedGameResults() {
-  try {
-    const raw = await AsyncStorage.getItem(GAME_RESULT_QUEUE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    const oldestAcceptedTimestamp = Date.now() - QUEUE_RETENTION_MS;
-    return Array.isArray(parsed)
-      ? parsed.filter(
-          (item) =>
-            item &&
-            typeof item.user_id === 'string' &&
-            item.payload &&
-            typeof item.payload.client_result_id === 'string' &&
-            Number.isFinite(Date.parse(item.queued_at)) &&
-            Date.parse(item.queued_at) >= oldestAcceptedTimestamp,
-        )
-      : [];
-  } catch {
-    return [];
+  return withQueueMutation(loadQueuedGameResultsUnlocked);
+}
+
+async function loadQueuedGameResultsUnlocked() {
+  const raw = await AsyncStorage.getItem(GAME_RESULT_QUEUE_KEY);
+  return parseQueuedGameResults(raw);
+}
+
+async function deleteQueuedGameResult(userId, clientResultId) {
+  return withQueueMutation(async () => {
+    const queuedResults = await loadQueuedGameResultsUnlocked();
+    await saveQueuedGameResults(
+      removeQueuedGameResult(queuedResults, userId, clientResultId),
+    );
+  });
+}
+
+async function isGameResultQueued(userId, clientResultId) {
+  const queuedResults = await loadQueuedGameResults();
+  return getQueuedGameResultsForUser(queuedResults, userId).some(
+    (item) => item.payload.client_result_id === clientResultId,
+  );
+}
+
+export async function hasQueuedGameResults(userId) {
+  if (!userId) {
+    return false;
   }
+
+  const queuedResults = await loadQueuedGameResults();
+  return getQueuedGameResultsForUser(queuedResults, userId).length > 0;
 }
 
 async function saveQueuedGameResults(queuedResults) {
+  await AsyncStorage.setItem(
+    GAME_RESULT_QUEUE_KEY,
+    JSON.stringify(queuedResults),
+  );
+}
+
+function withQueueMutation(task) {
+  const operation = queueMutation.then(task, task);
+  queueMutation = operation.catch(() => {});
+  return operation;
+}
+
+async function sendGameResult(payload) {
   try {
-    await AsyncStorage.setItem(GAME_RESULT_QUEUE_KEY, JSON.stringify(queuedResults));
-  } catch {
-    // Cloud sync must never block the local game.
+    return await supabase.rpc('submit_game_result', {
+      p_result: payload,
+    });
+  } catch (error) {
+    return { data: null, error };
   }
 }
 

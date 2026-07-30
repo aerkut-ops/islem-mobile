@@ -9,6 +9,7 @@ import {
 } from 'react-native-safe-area-context';
 import {
   Animated,
+  AppState,
   Easing,
   Linking,
   PanResponder,
@@ -28,8 +29,10 @@ import {
 import {
   buildGameResultPayload,
   flushQueuedGameResults,
+  hasQueuedGameResults,
   submitGameResult,
 } from './src/services/gameResultSync';
+import { reconcilePlayerProgress } from './src/services/playerProgressReconcile.mjs';
 import {
   getCurrentSession,
   isSupabaseConfigured,
@@ -907,6 +910,11 @@ export default function App() {
   const dragStateRef = useRef(null);
   const operationLockRef = useRef(false);
   const timerStartRef = useRef(null);
+  const progressRef = useRef(progress);
+  const activeUserIdRef = useRef(session?.user?.id || null);
+  const cloudRefreshIdRef = useRef(0);
+  progressRef.current = progress;
+  activeUserIdRef.current = session?.user?.id || null;
 
   const metrics = useMemo(
     () => getResponsiveMetrics(width, height, game.boardSize),
@@ -934,11 +942,51 @@ export default function App() {
     [t, weekKey, weeklyScore],
   );
 
+  const refreshCloudProgress = useCallback(
+    async (userId, { flushQueue = true } = {}) => {
+      if (!userId || activeUserIdRef.current !== userId) {
+        return null;
+      }
+
+      const refreshId = cloudRefreshIdRef.current + 1;
+      cloudRefreshIdRef.current = refreshId;
+
+      try {
+        if (flushQueue) {
+          await flushQueuedGameResults();
+        }
+
+        const cloudProgress = await loadPlayerCloudProgress(
+          userId,
+          getWeekKey(),
+        );
+        const hasPendingResults = await hasQueuedGameResults(userId);
+
+        if (
+          activeUserIdRef.current !== userId ||
+          cloudRefreshIdRef.current !== refreshId
+        ) {
+          return null;
+        }
+
+        const nextProgress = normalizeProgress(
+          reconcilePlayerProgress(progressRef.current, cloudProgress, {
+            authoritative: !hasPendingResults,
+          }),
+        );
+        progressRef.current = nextProgress;
+        setProgress(nextProgress);
+        await saveProgress(nextProgress, userId);
+        return nextProgress;
+      } catch {
+        return null;
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     loadBestScores().then(setBestScores);
-    flushQueuedGameResults().catch(() => {
-      // Cloud sync should never block app startup.
-    });
   }, []);
 
   useEffect(() => {
@@ -1000,35 +1048,37 @@ export default function App() {
     let active = true;
     const userId = session?.user?.id || null;
 
-    setProgress(normalizeProgress(DEFAULT_PROGRESS));
-    loadProgress(userId).then(async (storedProgress) => {
-      let nextProgress = storedProgress;
+    const emptyProgress = normalizeProgress(DEFAULT_PROGRESS);
+    progressRef.current = emptyProgress;
+    setProgress(emptyProgress);
 
-      if (userId) {
-        try {
-          const cloudProgress = await loadPlayerCloudProgress(userId, getWeekKey());
-          nextProgress = mergeProgressWithCloud(storedProgress, cloudProgress);
-          await saveProgress(nextProgress, userId);
-        } catch {
-          // The account can keep using its last local snapshot while offline.
-        }
+    loadProgress(userId).then(async (storedProgress) => {
+      if (!active) {
+        return;
       }
 
-      if (active) {
-        setProgress(nextProgress);
+      progressRef.current = storedProgress;
+      setProgress(storedProgress);
+
+      if (userId) {
+        await refreshCloudProgress(userId);
       }
     });
 
     return () => {
       active = false;
     };
-  }, [authLoading, session?.user?.id]);
+  }, [authLoading, refreshCloudProgress, session?.user?.id]);
 
   useEffect(() => {
     let timeoutId;
 
     const refreshStreak = () => {
-      setProgress((currentProgress) => normalizeProgress(currentProgress));
+      setProgress((currentProgress) => {
+        const nextProgress = normalizeProgress(currentProgress);
+        progressRef.current = nextProgress;
+        return nextProgress;
+      });
     };
     const scheduleNextDayRefresh = () => {
       timeoutId = setTimeout(() => {
@@ -1042,12 +1092,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (session?.user?.id) {
-      flushQueuedGameResults().catch(() => {
-        // A later game or app launch will retry queued results.
-      });
-    }
-  }, [session?.user?.id]);
+    const userId = session?.user?.id;
+    const refreshFromCloud = () => {
+      if (!userId) {
+        return;
+      }
+      refreshCloudProgress(userId);
+    };
+
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      (nextState) => {
+        if (nextState === 'active') {
+          refreshFromCloud();
+        }
+      },
+    );
+
+    return () => appStateSubscription.remove();
+  }, [refreshCloudProgress, session?.user?.id]);
 
   useEffect(() => {
     if (game.difficulty !== 'paper') {
@@ -1381,9 +1444,11 @@ export default function App() {
       const finalScore = calculateScore(finalGame);
       const completion = recordGameCompletion(progress, finalGame, finalScore);
       saveBestScore(finalGame.difficulty, completion.summary.score, bestScores, setBestScores);
+      progressRef.current = completion.progress;
       setProgress(completion.progress);
       saveProgress(completion.progress, session?.user?.id || null);
       setCompletionSummary(completion.summary);
+      const userId = session?.user?.id || null;
       submitGameResult(
         buildGameResultPayload({
           game: finalGame,
@@ -1393,11 +1458,17 @@ export default function App() {
           hintUsedCount: hintUseCount,
           language,
         }),
-      ).catch(() => {
-        // Cloud sync should never block or interrupt local gameplay.
-      });
+      )
+        .then((result) => {
+          if (userId && result.status === 'synced') {
+            refreshCloudProgress(userId, { flushQueue: false });
+          }
+        })
+        .catch(() => {
+          // Cloud sync should never block or interrupt local gameplay.
+        });
     }
-  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, session?.user?.id, t]);
+  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, refreshCloudProgress, session?.user?.id, t]);
 
   const swapOperationNumbers = useCallback(() => {
     setOperation((currentOperation) => {
@@ -3752,95 +3823,6 @@ function normalizeProgress(progress) {
     },
     weeklyScores: { [currentWeekKey]: currentWeeklyScore },
   };
-}
-
-function mergeProgressWithCloud(localProgress, cloudProgress) {
-  const local = normalizeProgress(localProgress);
-  if (!cloudProgress) {
-    return local;
-  }
-
-  const cloudStats = cloudProgress.stats || {};
-  const cloudLastDate = cloudStats.last_streak_date || null;
-  const localLastDate = local.streak.lastDailyDate || null;
-  const cloudStreakIsNewer = Boolean(
-    cloudLastDate && (!localLastDate || cloudLastDate >= localLastDate),
-  );
-  const cloudCompletedDailyDates = {};
-  const cloudCompletedStreakDates = {};
-
-  (cloudProgress.dailyProgress || []).forEach((day) => {
-    if (day.daily_challenge_completed) {
-      cloudCompletedDailyDates[day.daily_challenge_key || day.date] = true;
-    }
-    if (day.streak_awarded) {
-      cloudCompletedStreakDates[day.date] = true;
-    }
-  });
-
-  const cloudAchievements = Object.fromEntries(
-    (cloudProgress.achievements || []).map(({ achievement_key: key }) => [key, true]),
-  );
-  const cloudWeekly = cloudProgress.weeklyScore;
-  const cloudCompletedWeeklyKeys =
-    cloudWeekly?.weekly_challenge_completed && cloudWeekly.week_key
-      ? { [cloudWeekly.week_key]: true }
-      : {};
-  const cloudWeeklyScores = cloudWeekly?.week_key
-    ? { [cloudWeekly.week_key]: Number(cloudWeekly.score || 0) }
-    : {};
-
-  return normalizeProgress({
-    ...local,
-    achievements: {
-      ...local.achievements,
-      ...cloudAchievements,
-    },
-    completedDailyDates: {
-      ...local.completedDailyDates,
-      ...cloudCompletedDailyDates,
-    },
-    completedStreakDates: {
-      ...local.completedStreakDates,
-      ...cloudCompletedStreakDates,
-    },
-    completedWeeklyKeys: {
-      ...local.completedWeeklyKeys,
-      ...cloudCompletedWeeklyKeys,
-    },
-    stats: {
-      ...local.stats,
-      bestScore: Math.max(local.stats.bestScore, Number(cloudStats.best_score || 0)),
-      gamesCompleted: Math.max(
-        local.stats.gamesCompleted,
-        Number(cloudStats.games_completed || 0),
-      ),
-      gamesPlayed: Math.max(local.stats.gamesPlayed, Number(cloudStats.games_played || 0)),
-      perfectGames: Math.max(local.stats.perfectGames, Number(cloudStats.perfect_games || 0)),
-      targetsSolved: Math.max(
-        local.stats.targetsSolved,
-        Number(cloudStats.targets_solved || 0),
-      ),
-      totalMoves: Math.max(local.stats.totalMoves, Number(cloudStats.total_moves || 0)),
-      totalScore: Math.max(local.stats.totalScore, Number(cloudStats.total_score || 0)),
-    },
-    streak: {
-      best: Math.max(local.streak.best, Number(cloudStats.best_streak || 0)),
-      current: cloudStreakIsNewer
-        ? Number(cloudStats.current_streak || 0)
-        : local.streak.current,
-      lastDailyDate: cloudStreakIsNewer ? cloudLastDate : localLastDate,
-    },
-    weeklyScores: {
-      ...local.weeklyScores,
-      ...Object.fromEntries(
-        Object.entries(cloudWeeklyScores).map(([key, score]) => [
-          key,
-          Math.max(local.weeklyScores[key] || 0, score),
-        ]),
-      ),
-    },
-  });
 }
 
 function recordGameCompletion(progress, game, score) {
