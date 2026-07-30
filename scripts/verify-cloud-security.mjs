@@ -12,6 +12,7 @@ const PRIVATE_TABLES = [
   { name: 'monthly_scores' },
   { name: 'score_events' },
   { name: 'achievement_unlocks' },
+  { name: 'user_notifications', directReadDenied: true },
   { name: 'account_deletion_requests' },
 ];
 
@@ -200,7 +201,17 @@ async function verifyAccountIsolation({
       publishableKey,
       accessToken: session.accessToken,
       table: table.name,
+      allowDenied: table.directReadDenied,
     });
+
+    if (table.directReadDenied) {
+      if (!ownResult.denied) {
+        throw new Error(
+          `${session.label} can directly read ${table.name}; RPC-only access was expected.`,
+        );
+      }
+      continue;
+    }
 
     assertOwnRows({
       label: session.label,

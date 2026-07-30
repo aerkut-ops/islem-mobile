@@ -210,6 +210,55 @@ async function getIncomingRequestCount(context, session) {
   return count;
 }
 
+async function listNotifications(context, session, limit = 30) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_user_notifications',
+    parameters: { p_limit: limit },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Notifications returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function getUnreadNotificationCount(context, session) {
+  const count = await rpc({
+    ...context,
+    session,
+    functionName: 'get_unread_notification_count',
+  });
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error('Unread notification count is invalid.');
+  }
+  return count;
+}
+
+async function dismissNotification(context, session, notificationId) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'dismiss_notification',
+    parameters: { p_notification_id: notificationId },
+  });
+}
+
+async function cleanupTestNotifications(context, sessions, entityIds) {
+  for (const session of sessions) {
+    const rows = await listNotifications(context, session, 50);
+    for (const row of rows) {
+      if (entityIds.has(row.entity_id)) {
+        await dismissNotification(
+          context,
+          session,
+          row.notification_id,
+        );
+      }
+    }
+  }
+}
+
 async function getFriendProfile(context, session, playerId) {
   const rows = await rpc({
     ...context,
@@ -284,7 +333,11 @@ async function cleanTestRelationship(context, first, second) {
 }
 
 async function assertDirectTablesDenied(context, session) {
-  for (const table of ['friend_requests', 'friendships']) {
+  for (const table of [
+    'friend_requests',
+    'friendships',
+    'user_notifications',
+  ]) {
     const response = await fetch(
       `${context.supabaseUrl}/rest/v1/${table}?select=*`,
       {
@@ -299,12 +352,21 @@ async function assertDirectTablesDenied(context, session) {
 
 async function assertAnonymousRpcDenied(context) {
   for (const functionName of [
+    'dismiss_notification',
     'get_friend_profile',
     'get_incoming_friend_request_count',
+    'get_unread_notification_count',
     'list_friend_activity',
     'list_friend_connections',
     'list_friend_weekly_leaderboard',
+    'list_user_notifications',
+    'mark_notifications_read',
   ]) {
+    const parameters = {
+      dismiss_notification: { p_notification_id: null },
+      get_friend_profile: { p_player_id: null },
+      mark_notifications_read: { p_notification_ids: null },
+    }[functionName] || {};
     const response = await fetch(
       `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
       {
@@ -313,11 +375,7 @@ async function assertAnonymousRpcDenied(context) {
           apikey: context.publishableKey,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(
-          functionName === 'get_friend_profile'
-            ? { p_player_id: null }
-            : {},
-        ),
+        body: JSON.stringify(parameters),
       },
     );
     if (![401, 403].includes(response.status)) {
@@ -355,11 +413,20 @@ async function main() {
   }
 
   await cleanTestRelationship(context, development, appReview);
+  const testEntityIds = new Set();
 
   try {
     const initialIncomingCount = await getIncomingRequestCount(
       context,
       appReview,
+    );
+    const initialAppReviewUnread = await getUnreadNotificationCount(
+      context,
+      appReview,
+    );
+    const initialDevelopmentUnread = await getUnreadNotificationCount(
+      context,
+      development,
     );
     const privateActivity = await listFriendActivity(context, development);
     if (privateActivity.some((row) => row.player_id === appReview.userId)) {
@@ -442,6 +509,45 @@ async function main() {
     if (!outgoing?.request_id) {
       throw new Error('Outgoing friend request is missing.');
     }
+    testEntityIds.add(outgoing.request_id);
+
+    const safeNotificationKeys = new Set([
+      'actor_display_name',
+      'actor_id',
+      'actor_username',
+      'created_at',
+      'entity_id',
+      'is_read',
+      'notification_id',
+      'notification_type',
+    ]);
+    const firstRequestNotifications = await listNotifications(
+      context,
+      appReview,
+      50,
+    );
+    const firstRequestNotification = firstRequestNotifications.find(
+      (row) =>
+        row.entity_id === outgoing.request_id &&
+        row.notification_type === 'friend_request',
+    );
+    if (
+      !firstRequestNotification ||
+      firstRequestNotification.actor_id !== development.userId ||
+      firstRequestNotification.is_read ||
+      Object.keys(firstRequestNotification).some(
+        (key) => !safeNotificationKeys.has(key),
+      )
+    ) {
+      throw new Error('Friend request notification is missing or unsafe.');
+    }
+    if (
+      (await getUnreadNotificationCount(context, appReview)) !==
+      initialAppReviewUnread + 1
+    ) {
+      throw new Error('Unread count did not increase after a friend request.');
+    }
+    console.log('PASS  Friend request creates one private safe notification.');
 
     const cancelResult = await rpc({
       ...context,
@@ -457,6 +563,15 @@ async function main() {
       initialIncomingCount
     ) {
       throw new Error('Incoming request count did not reset after cancelling.');
+    }
+    if (
+      (await listNotifications(context, appReview, 50)).some(
+        (row) => row.entity_id === outgoing.request_id,
+      ) ||
+      (await getUnreadNotificationCount(context, appReview)) !==
+        initialAppReviewUnread
+    ) {
+      throw new Error('Cancelled request notification was not removed.');
     }
 
     await rpc({
@@ -474,6 +589,7 @@ async function main() {
     if (!requestToDecline?.request_id) {
       throw new Error('Request to decline is missing.');
     }
+    testEntityIds.add(requestToDecline.request_id);
     const declineResult = await rpc({
       ...context,
       session: appReview,
@@ -492,6 +608,13 @@ async function main() {
     ) {
       throw new Error('Incoming request count did not reset after declining.');
     }
+    if (
+      (await listNotifications(context, appReview, 50)).some(
+        (row) => row.entity_id === requestToDecline.request_id,
+      )
+    ) {
+      throw new Error('Declined request notification was not removed.');
+    }
     console.log('PASS  Friend requests can be cancelled and declined.');
 
     await rpc({
@@ -509,6 +632,7 @@ async function main() {
     if (!incoming?.request_id || 'email' in incoming) {
       throw new Error('Incoming friend request is missing or exposes email.');
     }
+    testEntityIds.add(incoming.request_id);
 
     const acceptResult = await rpc({
       ...context,
@@ -529,6 +653,78 @@ async function main() {
       throw new Error('Incoming request count did not reset after accepting.');
     }
     console.log('PASS  Incoming request count follows request state.');
+
+    const receiverNotifications = await listNotifications(
+      context,
+      appReview,
+      50,
+    );
+    if (
+      receiverNotifications.some(
+        (row) => row.entity_id === incoming.request_id,
+      )
+    ) {
+      throw new Error('Accepted request notification was not removed.');
+    }
+
+    const senderNotifications = await listNotifications(
+      context,
+      development,
+      50,
+    );
+    const acceptedNotification = senderNotifications.find(
+      (row) =>
+        row.entity_id === incoming.request_id &&
+        row.notification_type === 'friend_accepted',
+    );
+    if (
+      !acceptedNotification ||
+      acceptedNotification.actor_id !== appReview.userId ||
+      acceptedNotification.is_read ||
+      Object.keys(acceptedNotification).some(
+        (key) => !safeNotificationKeys.has(key),
+      )
+    ) {
+      throw new Error('Accepted request notification is missing or unsafe.');
+    }
+    if (
+      (await getUnreadNotificationCount(context, development)) !==
+      initialDevelopmentUnread + 1
+    ) {
+      throw new Error('Acceptance did not increase the sender unread count.');
+    }
+
+    const crossAccountDismiss = await dismissNotification(
+      context,
+      appReview,
+      acceptedNotification.notification_id,
+    );
+    if (crossAccountDismiss !== false) {
+      throw new Error('Another account could dismiss a private notification.');
+    }
+
+    const markedCount = await rpc({
+      ...context,
+      session: development,
+      functionName: 'mark_notifications_read',
+      parameters: {
+        p_notification_ids: [acceptedNotification.notification_id],
+      },
+    });
+    const readNotification = (
+      await listNotifications(context, development, 50)
+    ).find(
+      (row) => row.notification_id === acceptedNotification.notification_id,
+    );
+    if (
+      markedCount !== 1 ||
+      !readNotification?.is_read ||
+      (await getUnreadNotificationCount(context, development)) !==
+        initialDevelopmentUnread
+    ) {
+      throw new Error('Notification read state was not scoped or persisted.');
+    }
+    console.log('PASS  Acceptance notifications are private and readable once.');
 
     for (const [session, other] of [
       [development, appReview],
@@ -647,6 +843,7 @@ async function main() {
     console.log('PASS  Anonymous friend RPC access is denied.');
   } finally {
     await cleanTestRelationship(context, development, appReview);
+    await cleanupTestNotifications(context, sessions, testEntityIds);
   }
 
   const finalRows = await listConnections(context, development);

@@ -22,7 +22,9 @@ import {
 } from 'react-native';
 import AccountPanel from './src/components/AccountPanel';
 import FriendsPanel from './src/components/FriendsPanel';
+import NotificationPanel from './src/components/NotificationPanel';
 import { loadIncomingFriendRequestCount } from './src/services/friendService';
+import { loadUnreadNotificationCount } from './src/services/notificationService';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
 import { loadOwnProfile } from './src/services/profileService';
 import {
@@ -503,6 +505,35 @@ const STRINGS = {
         weekly: 'Meydan okuma',
       },
     },
+    notifications: {
+      buttonA11y: 'Bildirimleri aç',
+      pending: (count) => `${count} okunmamış bildirim`,
+      eyebrow: 'Çevrimiçi',
+      title: 'Bildirimler',
+      close: 'Bildirimler ekranını kapat',
+      closeAction: 'Kapat',
+      loadingAccount: 'Oturum kontrol ediliyor...',
+      loading: 'Bildirimler yükleniyor...',
+      unavailableTitle: 'Bildirimler kullanılamıyor',
+      unavailableText: 'Çevrimiçi bağlantı şu anda kullanılamıyor.',
+      accountRequiredTitle: 'Bu özellik için hesap gerekli',
+      accountRequiredText: 'Bildirimlerini görmek için hesabına giriş yap.',
+      signIn: 'Giriş yap',
+      loadError: 'Bildirimler şu anda yüklenemedi.',
+      actionError: 'Bildirim kaldırılamadı. Lütfen tekrar dene.',
+      retry: 'Tekrar dene',
+      emptyTitle: 'Yeni bildirim yok',
+      emptyText: 'Arkadaşlık istekleri ve kabul yanıtları burada görünecek.',
+      friendRequest: (name) => `${name} sana arkadaşlık isteği gönderdi.`,
+      friendAccepted: (name) => `${name} arkadaşlık isteğini kabul etti.`,
+      openFriends: 'Arkadaşları aç',
+      dismiss: 'Bildirimi kaldır',
+      newLabel: 'Yeni',
+      now: 'Şimdi',
+      minutesAgo: (count) => `${count} dk önce`,
+      hoursAgo: (count) => `${count} sa önce`,
+      daysAgo: (count) => `${count} gün önce`,
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Oyun modu seç',
@@ -943,6 +974,35 @@ const STRINGS = {
         weekly: 'Challenge',
       },
     },
+    notifications: {
+      buttonA11y: 'Open notifications',
+      pending: (count) => `${count} unread notifications`,
+      eyebrow: 'Online',
+      title: 'Notifications',
+      close: 'Close notifications screen',
+      closeAction: 'Close',
+      loadingAccount: 'Checking session...',
+      loading: 'Loading notifications...',
+      unavailableTitle: 'Notifications are unavailable',
+      unavailableText: 'The online connection is unavailable right now.',
+      accountRequiredTitle: 'An account is required',
+      accountRequiredText: 'Sign in to see your notifications.',
+      signIn: 'Sign in',
+      loadError: 'Notifications could not be loaded right now.',
+      actionError: 'The notification could not be removed. Please try again.',
+      retry: 'Try again',
+      emptyTitle: 'No new notifications',
+      emptyText: 'Friend requests and accepted requests will appear here.',
+      friendRequest: (name) => `${name} sent you a friend request.`,
+      friendAccepted: (name) => `${name} accepted your friend request.`,
+      openFriends: 'Open friends',
+      dismiss: 'Dismiss notification',
+      newLabel: 'New',
+      now: 'Now',
+      minutesAgo: (count) => `${count}m ago`,
+      hoursAgo: (count) => `${count}h ago`,
+      daysAgo: (count) => `${count}d ago`,
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Choose a mode',
@@ -1098,6 +1158,7 @@ export default function App() {
   const [streakVisible, setStreakVisible] = useState(false);
   const [accountVisible, setAccountVisible] = useState(false);
   const [friendsVisible, setFriendsVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [profile, setProfile] = useState(null);
@@ -1109,6 +1170,7 @@ export default function App() {
   const [friendLeaderboardError, setFriendLeaderboardError] = useState('');
   const [incomingFriendRequestCount, setIncomingFriendRequestCount] =
     useState(0);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
@@ -1204,6 +1266,22 @@ export default function App() {
     }
   }, []);
 
+  const refreshUnreadNotificationCount = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+
+    try {
+      const count = await loadUnreadNotificationCount();
+      if (activeUserIdRef.current === userId) {
+        setUnreadNotificationCount(count);
+      }
+    } catch {
+      // Notification badges must not interrupt offline or guest play.
+    }
+  }, []);
+
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -1212,6 +1290,26 @@ export default function App() {
     }
     refreshIncomingFriendRequestCount(userId);
   }, [refreshIncomingFriendRequestCount, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+    refreshUnreadNotificationCount(userId);
+  }, [refreshUnreadNotificationCount, session?.user?.id]);
+
+  const handleIncomingFriendRequestCountChange = useCallback(
+    (count) => {
+      setIncomingFriendRequestCount(count);
+      const userId = activeUserIdRef.current;
+      if (userId) {
+        refreshUnreadNotificationCount(userId);
+      }
+    },
+    [refreshUnreadNotificationCount],
+  );
 
   useEffect(() => {
     let active = true;
@@ -1450,6 +1548,7 @@ export default function App() {
       }
       refreshCloudProgress(userId);
       refreshIncomingFriendRequestCount(userId);
+      refreshUnreadNotificationCount(userId);
     };
 
     const appStateSubscription = AppState.addEventListener(
@@ -1465,6 +1564,7 @@ export default function App() {
   }, [
     refreshCloudProgress,
     refreshIncomingFriendRequestCount,
+    refreshUnreadNotificationCount,
     session?.user?.id,
   ]);
 
@@ -1870,6 +1970,7 @@ export default function App() {
     playSound('tap');
     setSettingsVisible(false);
     setFriendsVisible(false);
+    setNotificationsVisible(false);
     setAccountVisible(true);
   }, [playSound]);
 
@@ -1881,12 +1982,26 @@ export default function App() {
   const openFriends = useCallback(() => {
     playSound('tap');
     setSettingsVisible(false);
+    setNotificationsVisible(false);
     setFriendsVisible(true);
   }, [playSound]);
 
   const closeFriends = useCallback(() => {
     playSound('tap');
     setFriendsVisible(false);
+  }, [playSound]);
+
+  const openNotifications = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setFriendsVisible(false);
+    setNotificationsVisible(true);
+  }, [playSound]);
+
+  const closeNotifications = useCallback(() => {
+    playSound('tap');
+    setNotificationsVisible(false);
   }, [playSound]);
 
   const closeCompletion = useCallback(() => {
@@ -1969,6 +2084,7 @@ export default function App() {
     setCompletionSummary(null);
     setSettingsVisible(false);
     setFriendsVisible(false);
+    setNotificationsVisible(false);
     setHomePage('home');
     setHomeVisible(true);
     playSound('tap');
@@ -2002,6 +2118,7 @@ export default function App() {
             onOpenChallenge={openChallengePage}
             onOpenAccount={openAccount}
             onOpenDaily={openDailyPage}
+            onOpenNotifications={openNotifications}
             onOpenSettings={openSettings}
             onOpenStreak={openStreak}
             onOpenStats={openStatsPage}
@@ -2018,6 +2135,7 @@ export default function App() {
             session={session}
             strings={t}
             todayDone={todayDone}
+            unreadNotificationCount={unreadNotificationCount}
             weekKey={weekKey}
             weeklyDone={weeklyDone}
             weeklyScore={weeklyScore}
@@ -2282,12 +2400,23 @@ export default function App() {
           configured={isSupabaseConfigured}
           loading={authLoading || profileLoading}
           onClose={closeFriends}
-          onIncomingCountChange={setIncomingFriendRequestCount}
+          onIncomingCountChange={handleIncomingFriendRequestCountChange}
           onOpenAccount={openAccount}
           profile={profile}
           session={session}
           strings={t.friends}
           visible={friendsVisible}
+        />
+        <NotificationPanel
+          configured={isSupabaseConfigured}
+          loading={authLoading}
+          onClose={closeNotifications}
+          onOpenAccount={openAccount}
+          onOpenFriends={openFriends}
+          onUnreadCountChange={setUnreadNotificationCount}
+          session={session}
+          strings={t.notifications}
+          visible={notificationsVisible}
         />
         </View>
       </SafeAreaView>
@@ -2777,6 +2906,7 @@ function HomeScreen({
   onOpenAccount,
   onOpenChallenge,
   onOpenDaily,
+  onOpenNotifications,
   onOpenSettings,
   onOpenStreak,
   onOpenStats,
@@ -2793,6 +2923,7 @@ function HomeScreen({
   session,
   strings,
   todayDone,
+  unreadNotificationCount,
   weekKey,
   weeklyDone,
   weeklyScore,
@@ -3000,6 +3131,11 @@ function HomeScreen({
             session={session}
             strings={strings.account}
           />
+          <NotificationButton
+            count={unreadNotificationCount}
+            onPress={onOpenNotifications}
+            strings={strings.notifications}
+          />
           <StreakBadge
             completed={todayDone}
             count={progress.streak.current}
@@ -3121,6 +3257,37 @@ function AccountButton({ onPress, profile, session, strings }) {
       ]}
     >
       <Text style={[styles.accountButtonText, session && styles.accountButtonTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function NotificationButton({ count, onPress, strings }) {
+  return (
+    <Pressable
+      accessibilityLabel={
+        count > 0 ? `${strings.buttonA11y}, ${strings.pending(count)}` : strings.buttonA11y
+      }
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.notificationButton,
+        count > 0 && styles.notificationButtonActive,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text
+        style={[
+          styles.notificationButtonText,
+          count > 0 && styles.notificationButtonTextActive,
+        ]}
+      >
+        !
+      </Text>
+      {count > 0 ? (
+        <View style={styles.notificationButtonBadge}>
+          <Text style={styles.notificationBadgeText}>{Math.min(count, 99)}</Text>
+        </View>
+      ) : null}
     </Pressable>
   );
 }
@@ -4875,6 +5042,44 @@ const styles = StyleSheet.create({
   },
   accountButtonTextActive: {
     color: '#147b76',
+  },
+  notificationButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 36,
+  },
+  notificationButtonActive: {
+    backgroundColor: '#d9f5f2',
+    borderColor: '#1fa7a0',
+  },
+  notificationButtonText: {
+    color: '#68737d',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  notificationButtonTextActive: {
+    color: '#147b76',
+  },
+  notificationButtonBadge: {
+    alignItems: 'center',
+    backgroundColor: '#147b76',
+    borderColor: '#ffffff',
+    borderRadius: 9,
+    borderWidth: 2,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 3,
+    position: 'absolute',
+    right: -5,
+    top: -5,
   },
   homeTitleBlock: {
     flex: 1,
