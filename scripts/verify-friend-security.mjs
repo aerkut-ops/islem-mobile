@@ -164,6 +164,40 @@ async function listWeeklyLeaderboard(context, session, weekKey) {
   return rows;
 }
 
+async function listFriendActivity(context, session, limit = 12) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_friend_activity',
+    parameters: { p_limit: limit },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Friend activity returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function hasRecentCompletedEvent(context, session) {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const query = new URLSearchParams({
+    select: 'id',
+    completed: 'eq.true',
+    played_at: `gte.${cutoff}`,
+    limit: '1',
+  });
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/score_events?${query.toString()}`,
+    { headers: authHeaders(context.publishableKey, session) },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `${session.label} score event lookup failed with HTTP ${response.status}.`,
+    );
+  }
+  const rows = await response.json();
+  return Array.isArray(rows) && rows.length > 0;
+}
+
 async function getIncomingRequestCount(context, session) {
   const count = await rpc({
     ...context,
@@ -267,6 +301,7 @@ async function assertAnonymousRpcDenied(context) {
   for (const functionName of [
     'get_friend_profile',
     'get_incoming_friend_request_count',
+    'list_friend_activity',
     'list_friend_connections',
     'list_friend_weekly_leaderboard',
   ]) {
@@ -326,12 +361,17 @@ async function main() {
       context,
       appReview,
     );
+    const privateActivity = await listFriendActivity(context, development);
+    if (privateActivity.some((row) => row.player_id === appReview.userId)) {
+      throw new Error('Non-friend activity is visible.');
+    }
     await assertFriendProfileDenied(
       context,
       development,
       appReview.userId,
     );
     console.log('PASS  Non-friend profile access is denied.');
+    console.log('PASS  Non-friend activity remains hidden.');
 
     const privateLeaderboard = await listWeeklyLeaderboard(
       context,
@@ -538,6 +578,48 @@ async function main() {
     }
     console.log('PASS  Friend profiles expose only safe aggregate fields.');
 
+    const safeActivityKeys = new Set([
+      'activity_id',
+      'awarded_score',
+      'difficulty',
+      'display_name',
+      'duration_seconds',
+      'mode',
+      'played_at',
+      'player_id',
+      'target_count',
+      'targets_solved',
+      'username',
+    ]);
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const rows = await listFriendActivity(context, session, 999);
+      if (
+        rows.length > 20 ||
+        rows.some(
+          (row) =>
+            row.player_id === session.userId ||
+            Object.keys(row).some((key) => !safeActivityKeys.has(key)),
+        )
+      ) {
+        throw new Error(
+          `${session.label} friend activity is unbounded or exposes private fields.`,
+        );
+      }
+
+      if (
+        (await hasRecentCompletedEvent(context, other)) &&
+        !rows.some((row) => row.player_id === other.userId)
+      ) {
+        throw new Error(
+          `${session.label} cannot see the accepted friend's recent activity.`,
+        );
+      }
+    }
+    console.log('PASS  Friend activity exposes only safe recent summaries.');
+
     for (const [session, other] of [
       [development, appReview],
       [appReview, development],
@@ -572,6 +654,10 @@ async function main() {
     throw new Error('Security test did not clean up its test relationship.');
   }
   await assertFriendProfileDenied(context, development, appReview.userId);
+  const finalActivity = await listFriendActivity(context, development);
+  if (finalActivity.some((row) => row.player_id === appReview.userId)) {
+    throw new Error('Removed friend is still visible in friend activity.');
+  }
 
   const finalLeaderboard = await listWeeklyLeaderboard(
     context,

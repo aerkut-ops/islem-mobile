@@ -1,5 +1,7 @@
 import {
   groupFriendConnections,
+  normalizeFriendActivity,
+  normalizeFriendActivityLimit,
   normalizeFriendProfile,
   normalizeIncomingFriendRequestCount,
   validatePlayerSearch,
@@ -15,6 +17,19 @@ export async function loadFriendConnections() {
   }
 
   return groupFriendConnections(data);
+}
+
+export async function loadFriendActivity(limit = 12) {
+  requireFriendService();
+
+  const { data, error } = await supabase.rpc('list_friend_activity', {
+    p_limit: normalizeFriendActivityLimit(limit),
+  });
+  if (error) {
+    throw error;
+  }
+
+  return normalizeFriendActivity(data);
 }
 
 export async function loadFriendProfile(playerId) {

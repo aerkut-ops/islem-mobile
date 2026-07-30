@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import {
   cancelFriendRequest,
+  loadFriendActivity,
   loadFriendConnections,
   loadFriendProfile,
   removeFriend,
@@ -46,6 +47,9 @@ export default function FriendsPanel({
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchComplete, setSearchComplete] = useState(false);
   const [actionKey, setActionKey] = useState('');
+  const [activities, setActivities] = useState([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+  const [activitiesError, setActivitiesError] = useState('');
   const [selectedFriend, setSelectedFriend] = useState(null);
   const [friendProfile, setFriendProfile] = useState(null);
   const [friendProfileLoading, setFriendProfileLoading] = useState(false);
@@ -74,6 +78,22 @@ export default function FriendsPanel({
     }
   }, [canLoadFriends, onIncomingCountChange, strings.loadError]);
 
+  const refreshActivity = useCallback(async () => {
+    if (!canLoadFriends) {
+      return;
+    }
+
+    setActivitiesLoading(true);
+    setActivitiesError('');
+    try {
+      setActivities(await loadFriendActivity());
+    } catch {
+      setActivitiesError(strings.activityError);
+    } finally {
+      setActivitiesLoading(false);
+    }
+  }, [canLoadFriends, strings.activityError]);
+
   useEffect(() => {
     if (!visible) {
       friendProfileRequestRef.current += 1;
@@ -85,6 +105,9 @@ export default function FriendsPanel({
       setSearchLoading(false);
       setSearchComplete(false);
       setActionKey('');
+      setActivities([]);
+      setActivitiesLoading(false);
+      setActivitiesError('');
       setSelectedFriend(null);
       setFriendProfile(null);
       setFriendProfileLoading(false);
@@ -94,8 +117,9 @@ export default function FriendsPanel({
 
     if (canLoadFriends) {
       refreshConnections();
+      refreshActivity();
     }
-  }, [canLoadFriends, refreshConnections, visible]);
+  }, [canLoadFriends, refreshActivity, refreshConnections, visible]);
 
   const handleSearch = async () => {
     const query = searchText.trim();
@@ -132,6 +156,7 @@ export default function FriendsPanel({
     if (nextSearchResults) {
       setSearchResults(nextSearchResults);
     }
+    await refreshActivity();
   };
 
   const openFriendProfile = async (player) => {
@@ -398,6 +423,15 @@ export default function FriendsPanel({
                 )}
               </FriendSection>
             ) : null}
+
+            <ActivitySection
+              activities={activities}
+              error={activitiesError}
+              loading={activitiesLoading}
+              onPlayerPress={openFriendProfile}
+              onRetry={refreshActivity}
+              strings={strings}
+            />
           </>
         )}
       </ScrollView>
@@ -650,6 +684,99 @@ function ProfileStat({ label, value }) {
       </Text>
     </View>
   );
+}
+
+function ActivitySection({
+  activities,
+  error,
+  loading,
+  onPlayerPress,
+  onRetry,
+  strings,
+}) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{strings.activityTitle}</Text>
+      {loading ? (
+        <View style={styles.inlineLoading}>
+          <ActivityIndicator color="#1fa7a0" size="small" />
+          <Text style={styles.helperText}>{strings.activityLoading}</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.activityError}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onRetry}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <Text style={styles.retryText}>{strings.retry}</Text>
+          </Pressable>
+        </View>
+      ) : activities.length > 0 ? (
+        activities.map((activity) => {
+          const name =
+            activity.display_name || `@${activity.username}`;
+          return (
+            <Pressable
+              accessibilityLabel={`${name} ${strings.activityCompleted}`}
+              accessibilityRole="button"
+              key={activity.activity_id}
+              onPress={() => onPlayerPress(activity)}
+              style={({ pressed }) => [
+                styles.activityRow,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={styles.activityMark}>
+                <Text style={styles.activityMarkText}>
+                  {name.slice(0, 1).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.activityCopy}>
+                <View style={styles.activityHeadline}>
+                  <Text numberOfLines={1} style={styles.activityTitle}>
+                    <Text style={styles.activityName}>{name}</Text>
+                    {` ${strings.activityCompleted}`}
+                  </Text>
+                  <Text style={styles.activityTime}>
+                    {formatActivityAge(activity.played_at, strings)}
+                  </Text>
+                </View>
+                <Text numberOfLines={1} style={styles.activityMeta}>
+                  {strings.activitySummary(
+                    strings.activityModes[activity.mode],
+                    strings.activityDifficulties[activity.difficulty],
+                    activity.awarded_score,
+                  )}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })
+      ) : (
+        <Text style={styles.emptyText}>{strings.activityEmpty}</Text>
+      )}
+    </View>
+  );
+}
+
+function formatActivityAge(value, strings) {
+  const elapsedMinutes = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(value).getTime()) / 60000),
+  );
+  if (elapsedMinutes < 1) {
+    return strings.activityNow;
+  }
+  if (elapsedMinutes < 60) {
+    return strings.activityMinutesAgo(elapsedMinutes);
+  }
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) {
+    return strings.activityHoursAgo(elapsedHours);
+  }
+  return strings.activityDaysAgo(Math.floor(elapsedHours / 24));
 }
 
 function SearchActions({
@@ -1008,6 +1135,63 @@ const styles = StyleSheet.create({
     color: '#20242a',
     fontSize: 19,
     fontWeight: '900',
+    marginTop: 3,
+  },
+  activityError: {
+    backgroundColor: '#fff4f2',
+    borderRadius: 8,
+    padding: 10,
+  },
+  activityRow: {
+    alignItems: 'center',
+    borderBottomColor: '#edf2f5',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    minHeight: 58,
+    paddingVertical: 8,
+  },
+  activityMark: {
+    alignItems: 'center',
+    backgroundColor: '#d9f5f2',
+    borderRadius: 8,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  activityMarkText: {
+    color: '#147b76',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  activityCopy: {
+    flex: 1,
+    marginLeft: 9,
+    minWidth: 0,
+  },
+  activityHeadline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  activityTitle: {
+    color: '#20242a',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 0,
+  },
+  activityName: {
+    fontWeight: '900',
+  },
+  activityTime: {
+    color: '#7d8790',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  activityMeta: {
+    color: '#68737d',
+    fontSize: 11,
+    fontWeight: '700',
     marginTop: 3,
   },
   actions: {

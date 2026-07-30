@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   groupFriendConnections,
+  normalizeFriendActivity,
+  normalizeFriendActivityLimit,
   normalizeFriendProfile,
   normalizeIncomingFriendRequestCount,
   normalizePlayerSearch,
@@ -83,4 +85,95 @@ test('incoming request count is a non-negative integer', () => {
   assert.equal(normalizeIncomingFriendRequestCount(2.8), 2);
   assert.equal(normalizeIncomingFriendRequestCount(-5), 0);
   assert.equal(normalizeIncomingFriendRequestCount('invalid'), 0);
+});
+
+test('friend activity keeps safe completed-game summary fields', () => {
+  assert.deepEqual(
+    normalizeFriendActivity([
+      {
+        activity_id: 'activity-old',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        display_name: 'Friend Name',
+        mode: 'daily',
+        difficulty: 'hard',
+        awarded_score: '90',
+        targets_solved: 4,
+        target_count: 5,
+        duration_seconds: 65.8,
+        played_at: '2026-07-29T10:00:00.000Z',
+        email: 'hidden@example.com',
+        payload: { hidden: true },
+      },
+      {
+        activity_id: 'activity-new',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        mode: 'normal',
+        difficulty: 'easy',
+        awarded_score: -2,
+        targets_solved: 3,
+        target_count: 3,
+        duration_seconds: 30,
+        played_at: '2026-07-30T10:00:00.000Z',
+      },
+    ]),
+    [
+      {
+        activity_id: 'activity-new',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        display_name: null,
+        mode: 'normal',
+        difficulty: 'easy',
+        awarded_score: 0,
+        targets_solved: 3,
+        target_count: 3,
+        duration_seconds: 30,
+        played_at: '2026-07-30T10:00:00.000Z',
+      },
+      {
+        activity_id: 'activity-old',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        display_name: 'Friend Name',
+        mode: 'daily',
+        difficulty: 'hard',
+        awarded_score: 90,
+        targets_solved: 4,
+        target_count: 5,
+        duration_seconds: 65,
+        played_at: '2026-07-29T10:00:00.000Z',
+      },
+    ],
+  );
+});
+
+test('malformed activity rows are ignored and limits are bounded', () => {
+  assert.deepEqual(
+    normalizeFriendActivity([
+      null,
+      {
+        activity_id: 'invalid-mode',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        mode: 'private',
+        difficulty: 'easy',
+        played_at: '2026-07-30T10:00:00.000Z',
+      },
+      {
+        activity_id: 'invalid-date',
+        player_id: 'friend-id',
+        username: 'friend_name',
+        mode: 'normal',
+        difficulty: 'easy',
+        played_at: 'not-a-date',
+      },
+    ]),
+    [],
+  );
+  assert.equal(normalizeFriendActivityLimit(undefined), 12);
+  assert.equal(normalizeFriendActivityLimit(0), 12);
+  assert.equal(normalizeFriendActivityLimit(5.9), 5);
+  assert.equal(normalizeFriendActivityLimit(200), 20);
 });

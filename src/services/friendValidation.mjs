@@ -2,6 +2,15 @@ export const PLAYER_SEARCH_MIN_LENGTH = 2;
 export const PLAYER_SEARCH_MAX_LENGTH = 40;
 
 const CONNECTION_TYPES = new Set(['friend', 'incoming', 'outgoing']);
+const ACTIVITY_MODES = new Set(['normal', 'daily', 'weekly']);
+const ACTIVITY_DIFFICULTIES = new Set([
+  'paper',
+  'easy',
+  'medium',
+  'hard',
+  'master',
+  'weekly',
+]);
 
 export function normalizePlayerSearch(value) {
   return String(value || '')
@@ -69,4 +78,47 @@ export function normalizeFriendProfile(row) {
 
 export function normalizeIncomingFriendRequestCount(value) {
   return normalizeNonNegativeInteger(value);
+}
+
+export function normalizeFriendActivityLimit(value) {
+  const limit = normalizeNonNegativeInteger(value);
+  return Math.min(Math.max(limit || 12, 1), 20);
+}
+
+export function normalizeFriendActivity(rows) {
+  const activities = [];
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const playedAt = new Date(row?.played_at);
+    if (
+      !row?.activity_id ||
+      !row?.player_id ||
+      !row?.username ||
+      !ACTIVITY_MODES.has(row.mode) ||
+      !ACTIVITY_DIFFICULTIES.has(row.difficulty) ||
+      Number.isNaN(playedAt.getTime())
+    ) {
+      continue;
+    }
+
+    activities.push({
+      activity_id: row.activity_id,
+      player_id: row.player_id,
+      username: String(row.username),
+      display_name: row.display_name ? String(row.display_name) : null,
+      mode: row.mode,
+      difficulty: row.difficulty,
+      awarded_score: normalizeNonNegativeInteger(row.awarded_score),
+      targets_solved: normalizeNonNegativeInteger(row.targets_solved),
+      target_count: normalizeNonNegativeInteger(row.target_count),
+      duration_seconds: normalizeNonNegativeInteger(row.duration_seconds),
+      played_at: playedAt.toISOString(),
+    });
+  }
+
+  return activities.sort(
+    (left, right) =>
+      new Date(right.played_at).getTime() -
+      new Date(left.played_at).getTime(),
+  );
 }
