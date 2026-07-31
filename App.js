@@ -29,7 +29,7 @@ import {
   loadActiveChallengeRoom,
   readyChallengeRoom,
   submitChallengeResult,
-  updateChallengeProgress,
+  syncChallengeOperations,
 } from './src/services/challengeService';
 import { loadIncomingFriendRequestCount } from './src/services/friendService';
 import {
@@ -2005,6 +2005,34 @@ export default function App() {
   }, [game, session?.user?.id]);
 
   useEffect(() => {
+    const startedAt = Date.parse(challengeRoom?.started_at || '');
+    if (
+      game.mode !== MODE_CHALLENGE ||
+      !game.challengeRoomId ||
+      game.history.length === 0 ||
+      challengeRoom?.status !== 'active' ||
+      !Number.isFinite(startedAt) ||
+      Date.now() < startedAt
+    ) {
+      return;
+    }
+
+    syncChallengeOperations(
+      game.challengeRoomId,
+      game.history,
+    ).catch(() => {
+      setChallengeError(t.home.roomActionError);
+    });
+  }, [
+    challengeRoom?.started_at,
+    challengeRoom?.status,
+    game.challengeRoomId,
+    game.history,
+    game.mode,
+    t.home.roomActionError,
+  ]);
+
+  useEffect(() => {
     const userId = session?.user?.id;
     if (
       userId &&
@@ -2217,6 +2245,7 @@ export default function App() {
         {
           a: a.value,
           b: b.value,
+          id: resultTile.id,
           op,
           result: result.value,
           hit: hitTarget,
@@ -2259,13 +2288,27 @@ export default function App() {
             }
           : currentRoom,
       );
-      updateChallengeProgress(
+      syncChallengeOperations(
         finalGame.challengeRoomId,
-        solvedTargets,
-        finalGame.steps,
-      ).catch(() => {
-        // Polling reconciles transient race progress failures.
-      });
+        finalGame.history,
+      )
+        .then((serverProgress) => {
+          if (!serverProgress) {
+            return;
+          }
+          setChallengeRoom((currentRoom) =>
+            currentRoom?.room_id === finalGame.challengeRoomId
+              ? {
+                  ...currentRoom,
+                  own_moves: serverProgress.moves,
+                  own_solved_targets: serverProgress.solved_targets,
+                }
+              : currentRoom,
+          );
+        })
+        .catch(() => {
+          setChallengeError(t.home.roomActionError);
+        });
     }
 
     if (finalGame.complete) {
@@ -2305,7 +2348,7 @@ export default function App() {
       ) {
         submitChallengeResult(
           finalGame.challengeRoomId,
-          finalGame.steps,
+          finalGame.history,
         )
           .then((room) => {
             if (room) {
@@ -2547,7 +2590,10 @@ export default function App() {
 
     setChallengeActionBusy(true);
     try {
-      const room = await readyChallengeRoom(challengeRoom.room_id);
+      const room = await readyChallengeRoom(
+        challengeRoom.room_id,
+        makeChallengePuzzle(challengeRoom.puzzle_seed),
+      );
       if (room) {
         setChallengeRoom(room);
       }

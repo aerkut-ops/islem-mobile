@@ -3,7 +3,11 @@ import {
   normalizeChallengeResponse,
   normalizeChallengeRooms,
 } from './challengeValidation.mjs';
+import { createSerialTaskQueue } from './serialTaskQueue.mjs';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
+
+const challengeOperationQueue = createSerialTaskQueue();
+const acknowledgedChallengeOperations = new Map();
 
 export async function loadChallengeInvites() {
   requireChallengeService();
@@ -60,31 +64,61 @@ export async function cancelChallengeRoom(roomId) {
   });
 }
 
-export async function readyChallengeRoom(roomId) {
+export async function readyChallengeRoom(roomId, puzzle) {
   await runChallengeAction('ready_challenge_room', {
     p_room_id: roomId,
+    p_source_numbers: puzzle.source,
+    p_target_values: puzzle.targets.map((target) => target.value),
   });
   return loadChallengeRoom(roomId);
 }
 
-export async function updateChallengeProgress(
-  roomId,
-  solvedTargets,
-  moves,
-) {
-  return runChallengeAction('update_challenge_progress', {
-    p_moves: moves,
-    p_room_id: roomId,
-    p_solved_targets: solvedTargets,
+export function syncChallengeOperations(roomId, operations) {
+  return challengeOperationQueue.run(roomId, async () => {
+    return syncChallengeOperationsNow(roomId, operations);
   });
 }
 
-export async function submitChallengeResult(roomId, moves) {
-  await runChallengeAction('submit_challenge_result', {
-    p_moves: moves,
-    p_room_id: roomId,
+export function submitChallengeResult(roomId, operations = []) {
+  return challengeOperationQueue.run(roomId, async () => {
+    await syncChallengeOperationsNow(roomId, operations);
+    await runChallengeAction('submit_challenge_result', {
+      p_room_id: roomId,
+    });
+    return loadChallengeRoom(roomId);
   });
-  return loadChallengeRoom(roomId);
+}
+
+async function syncChallengeOperationsNow(roomId, operations) {
+  const acknowledged =
+    acknowledgedChallengeOperations.get(roomId) || new Set();
+  acknowledgedChallengeOperations.set(roomId, acknowledged);
+  let latestProgress = null;
+
+  for (const [index, operation] of operations.entries()) {
+    const operationId = operation.id || `legacy-${index + 1}`;
+    if (acknowledged.has(operationId)) {
+      continue;
+    }
+
+    const response = await runChallengeAction(
+      'apply_challenge_operation',
+      {
+        p_a: operation.a,
+        p_b: operation.b,
+        p_op: operation.op,
+        p_operation_id: operationId,
+        p_result: operation.result,
+        p_room_id: roomId,
+      },
+    );
+    latestProgress = Array.isArray(response)
+      ? response[0] || null
+      : response;
+    acknowledged.add(operationId);
+  }
+
+  return latestProgress;
 }
 
 async function loadChallengeRoom(roomId) {
