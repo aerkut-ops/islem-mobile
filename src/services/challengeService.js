@@ -60,6 +60,38 @@ export async function cancelChallengeRoom(roomId) {
   });
 }
 
+export async function readyChallengeRoom(roomId) {
+  await runChallengeAction('ready_challenge_room', {
+    p_room_id: roomId,
+  });
+  return loadChallengeRoom(roomId);
+}
+
+export async function updateChallengeProgress(
+  roomId,
+  solvedTargets,
+  moves,
+) {
+  return runChallengeAction('update_challenge_progress', {
+    p_moves: moves,
+    p_room_id: roomId,
+    p_solved_targets: solvedTargets,
+  });
+}
+
+export async function submitChallengeResult(roomId, moves) {
+  await runChallengeAction('submit_challenge_result', {
+    p_moves: moves,
+    p_room_id: roomId,
+  });
+  return loadChallengeRoom(roomId);
+}
+
+async function loadChallengeRoom(roomId) {
+  const rooms = await loadActiveChallengeRooms();
+  return rooms.find((room) => room.room_id === roomId) || null;
+}
+
 async function runChallengeAction(functionName, parameters) {
   requireChallengeService();
 

@@ -22,6 +22,11 @@ const PRIVATE_TABLES = [
     directReadDenied: true,
     readColumn: 'host_id',
   },
+  {
+    name: 'challenge_room_players',
+    directReadDenied: true,
+    readColumn: 'user_id',
+  },
   { name: 'user_notifications', directReadDenied: true },
   { name: 'push_devices', directReadDenied: true },
   { name: 'account_deletion_requests' },

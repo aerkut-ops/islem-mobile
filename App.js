@@ -27,6 +27,9 @@ import NotificationPanel from './src/components/NotificationPanel';
 import {
   cancelChallengeRoom,
   loadActiveChallengeRoom,
+  readyChallengeRoom,
+  submitChallengeResult,
+  updateChallengeProgress,
 } from './src/services/challengeService';
 import { loadIncomingFriendRequestCount } from './src/services/friendService';
 import {
@@ -163,6 +166,9 @@ const PROGRESS_OWNER_KEY_PREFIX = `${PROGRESS_KEY}:owner`;
 const MODE_NORMAL = 'normal';
 const MODE_DAILY = 'daily';
 const MODE_WEEKLY = 'weekly';
+const MODE_CHALLENGE = 'challenge';
+const CHALLENGE_GAME_PREFIX = 'islem-challenge-game-v1';
+const CHALLENGE_POLL_MS = 2000;
 const PLAYABLE_DIFFICULTIES = ['easy', 'medium', 'hard', 'master'];
 const SOUND_DEBOUNCE_MS = 90;
 const BADGE_DEFS = [
@@ -325,6 +331,7 @@ const STRINGS = {
       normal: 'Normal oyun',
       daily: 'Günün bulmacası',
       weekly: 'Haftalık meydan okuma',
+      challenge: 'Arkadaş yarışı',
     },
     status: {
       streak: 'Seri',
@@ -595,9 +602,9 @@ const STRINGS = {
       challengeTitle: 'Meydan Okuma',
       challengeText: 'Arkadaşlarınla zamana karşı yarışma modu.',
       challengePageTitle: 'Meydan Okuma',
-      challengePageText: 'Arkadaşlarınla veya eşleşen oyuncularla aynı bulmacada yarışma sistemi hazırlanıyor.',
-      challengeStatusTitle: 'Gelişim aşamasında',
-      challengeStatusText: 'Oda kurma, arkadaş daveti ve canlı yarış akışı burada olacak. Şimdilik bu modu ayrı tutuyoruz.',
+      challengePageText: 'Arkadaşınla aynı bulmacayı aynı anda çöz. En hızlı tamamlayan yarışı kazanır.',
+      challengeStatusTitle: 'Arkadaşını davet et',
+      challengeStatusText: 'Arkadaşlar ekranından bir oyuncuya meydan oku. Davet kabul edildiğinde ortak yarış odanız burada açılır.',
       challengeDone: 'Bu hafta puan alındı',
       challengeReady: 'Haftalık hazır',
       challengeButton: 'Yakında',
@@ -609,9 +616,21 @@ const STRINGS = {
       roomMatched: (name) => `${name} katıldı. Yarışa başlayabilirsin.`,
       roomReadyTitle: 'Yarış odası hazır',
       roomOpponent: 'Rakip',
-      roomReadyMessage: 'Davet kabul edildi. Canlı yarış ve ortak bulmaca eşitlemesi bir sonraki aşamada açılacak.',
+      roomReadyMessage: 'Hazır olduğunda düğmeye dokun. İki oyuncu da hazır olunca ortak geri sayım başlar.',
+      roomReadyDone: 'Hazırsın. Rakibinin katılması bekleniyor.',
+      roomCountdown: (count) => `Yarış ${count} saniye içinde başlıyor.`,
+      roomRaceActive: 'Yarış başladı. Ortak bulmacaya devam edebilirsin.',
+      roomRaceComplete: 'Yarış tamamlandı.',
+      roomProgress: (own, opponent, total) => `Sen ${own}/${total} · Rakip ${opponent}/${total}`,
+      roomOutcomeWon: 'Kazandın!',
+      roomOutcomeLost: 'Rakibin yarışı kazandı.',
+      roomOutcomeTie: 'Yarış berabere tamamlandı.',
+      roomOutcomeWaiting: 'Bitirdin. Rakibinin sonucu bekleniyor.',
+      roomActionError: 'Yarış durumu güncellenemedi. İnternet bağlantını kontrol edip tekrar dene.',
+      roomClosed: 'Yarış odası kapatıldı.',
       roomInviteFriend: 'Arkadaşlarına git',
-      roomStart: 'Yarışı başlat',
+      roomStart: 'Hazırım',
+      roomResume: 'Yarışa dön',
       roomReset: 'Odayı kapat',
       weeklyStart: 'Haftalık bulmacayı oyna',
       tutorialTitle: 'Öğretici',
@@ -639,6 +658,7 @@ const STRINGS = {
       noNewBadges: 'Yeni rozet yok',
       next: 'Yeni oyun',
       close: 'Oyuna dön',
+      raceTitle: 'Yarış durumu',
     },
     badges: {
       first_win: {
@@ -819,6 +839,7 @@ const STRINGS = {
       normal: 'Normal game',
       daily: 'Daily puzzle',
       weekly: 'Weekly challenge',
+      challenge: 'Friend race',
     },
     status: {
       streak: 'Streak',
@@ -1089,9 +1110,9 @@ const STRINGS = {
       challengeTitle: 'Challenge',
       challengeText: 'Race friends against the clock.',
       challengePageTitle: 'Challenge',
-      challengePageText: 'A live race system for friends or matched players is being prepared.',
-      challengeStatusTitle: 'In development',
-      challengeStatusText: 'Room creation, friend invites, and live races will live here. For now, this mode is kept separate.',
+      challengePageText: 'Solve the same puzzle at the same time as a friend. The fastest finisher wins.',
+      challengeStatusTitle: 'Invite a friend',
+      challengeStatusText: 'Challenge a player from the friends screen. Your shared race room opens here when the invitation is accepted.',
       challengeDone: 'Scored this week',
       challengeReady: 'Weekly ready',
       challengeButton: 'Coming soon',
@@ -1103,9 +1124,21 @@ const STRINGS = {
       roomMatched: (name) => `${name} joined. You can start the race.`,
       roomReadyTitle: 'Race room ready',
       roomOpponent: 'Opponent',
-      roomReadyMessage: 'The invitation was accepted. Live race and shared puzzle sync will open in the next stage.',
+      roomReadyMessage: 'Tap ready when you are set. A shared countdown starts after both players are ready.',
+      roomReadyDone: 'You are ready. Waiting for your opponent.',
+      roomCountdown: (count) => `Race starts in ${count} seconds.`,
+      roomRaceActive: 'The race has started. Continue to the shared puzzle.',
+      roomRaceComplete: 'The race is complete.',
+      roomProgress: (own, opponent, total) => `You ${own}/${total} · Opponent ${opponent}/${total}`,
+      roomOutcomeWon: 'You won!',
+      roomOutcomeLost: 'Your opponent won the race.',
+      roomOutcomeTie: 'The race ended in a tie.',
+      roomOutcomeWaiting: 'You finished. Waiting for your opponent.',
+      roomActionError: 'The race status could not be updated. Check your connection and try again.',
+      roomClosed: 'The race room was closed.',
       roomInviteFriend: 'Open friends',
-      roomStart: 'Start race',
+      roomStart: 'I am ready',
+      roomResume: 'Return to race',
       roomReset: 'Close room',
       weeklyStart: 'Play weekly puzzle',
       tutorialTitle: 'Tutorial',
@@ -1133,6 +1166,7 @@ const STRINGS = {
       noNewBadges: 'No new badges',
       next: 'New game',
       close: 'Back to game',
+      raceTitle: 'Race status',
     },
     badges: {
       first_win: {
@@ -1219,6 +1253,9 @@ export default function App() {
   const [homeVisible, setHomeVisible] = useState(true);
   const [homePage, setHomePage] = useState('home');
   const [challengeRoom, setChallengeRoom] = useState(null);
+  const [challengeActionBusy, setChallengeActionBusy] = useState(false);
+  const [challengeCountdown, setChallengeCountdown] = useState(null);
+  const [challengeError, setChallengeError] = useState('');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [streakVisible, setStreakVisible] = useState(false);
   const [accountVisible, setAccountVisible] = useState(false);
@@ -1252,6 +1289,8 @@ export default function App() {
   const progressRef = useRef(progress);
   const activeUserIdRef = useRef(session?.user?.id || null);
   const cloudRefreshIdRef = useRef(0);
+  const challengeAutoOpenedRef = useRef(null);
+  const challengeLaunchRef = useRef(null);
   progressRef.current = progress;
   activeUserIdRef.current = session?.user?.id || null;
 
@@ -1410,6 +1449,8 @@ export default function App() {
     const userId = session?.user?.id;
     if (!userId) {
       setChallengeRoom(null);
+      setChallengeCountdown(null);
+      setChallengeError('');
       return;
     }
     refreshChallengeRoom(userId);
@@ -1810,6 +1851,172 @@ export default function App() {
     }));
   }, [playSound, t, tutorialStepCount, weekKey]);
 
+  const launchChallengeGame = useCallback(async (room) => {
+    const userId = activeUserIdRef.current;
+    const startedAt = Date.parse(room?.started_at || '');
+    if (
+      !userId ||
+      !room?.room_id ||
+      !room?.puzzle_seed ||
+      room.status !== 'active' ||
+      !Number.isFinite(startedAt) ||
+      Date.now() < startedAt ||
+      challengeLaunchRef.current === room.room_id
+    ) {
+      return;
+    }
+
+    challengeLaunchRef.current = room.room_id;
+    try {
+      const storedGame = await loadChallengeGame(userId, room);
+      const nextGame =
+        storedGame ||
+        createGame(
+          'hard',
+          makeChallengePuzzle(room.puzzle_seed),
+          t,
+          {
+            challengeKey: room.room_id,
+            challengePuzzleSeed: room.puzzle_seed,
+            challengeRoomId: room.room_id,
+            mode: MODE_CHALLENGE,
+          },
+        );
+
+      timerStartRef.current = startedAt;
+      setElapsedSeconds(getElapsedSeconds(startedAt));
+      setOperation(null);
+      setOperationError('');
+      setHint(null);
+      setDragState(null);
+      dragStateRef.current = null;
+      setCompletionSummary(null);
+      setHintUseCount(0);
+      setSettingsVisible(false);
+      setHomeVisible(false);
+      setTutorialStep(tutorialStepCount);
+      setUndoStack([]);
+      setGame(nextGame);
+    } finally {
+      challengeLaunchRef.current = null;
+    }
+  }, [t, tutorialStepCount]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const roomId = challengeRoom?.room_id;
+    if (
+      !userId ||
+      !roomId ||
+      !['ready', 'active'].includes(challengeRoom.status)
+    ) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      refreshChallengeRoom(userId);
+    }, CHALLENGE_POLL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    refreshChallengeRoom,
+    session?.user?.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      homeVisible &&
+      homePage === 'home' &&
+      challengeRoom?.room_id &&
+      ['ready', 'active'].includes(challengeRoom.status) &&
+      challengeAutoOpenedRef.current !== challengeRoom.room_id
+    ) {
+      challengeAutoOpenedRef.current = challengeRoom.room_id;
+      setHomePage('challenge');
+    }
+    if (!challengeRoom?.room_id) {
+      challengeAutoOpenedRef.current = null;
+    }
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    homePage,
+    homeVisible,
+  ]);
+
+  useEffect(() => {
+    const startedAt = Date.parse(challengeRoom?.started_at || '');
+    if (
+      challengeRoom?.status !== 'active' ||
+      !challengeRoom.own_ready ||
+      challengeRoom.own_completed_at ||
+      !Number.isFinite(startedAt)
+    ) {
+      setChallengeCountdown(null);
+      return undefined;
+    }
+
+    const updateCountdown = () => {
+      const seconds = Math.max(
+        0,
+        Math.ceil((startedAt - Date.now()) / 1000),
+      );
+      setChallengeCountdown(seconds);
+
+      if (seconds === 0) {
+        if (homeVisible && homePage === 'challenge') {
+          launchChallengeGame(challengeRoom);
+        }
+      }
+    };
+
+    updateCountdown();
+    const intervalId = setInterval(updateCountdown, 250);
+    return () => clearInterval(intervalId);
+  }, [
+    challengeRoom,
+    homePage,
+    homeVisible,
+    launchChallengeGame,
+  ]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      !userId ||
+      game.mode !== MODE_CHALLENGE ||
+      !game.challengeRoomId
+    ) {
+      return;
+    }
+
+    saveChallengeGame(userId, game).catch(() => {});
+  }, [game, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      userId &&
+      !challengeRoom &&
+      game.mode === MODE_CHALLENGE &&
+      game.challengeRoomId
+    ) {
+      clearChallengeGame(userId, game.challengeRoomId).catch(() => {});
+      setCompletionSummary(null);
+      setHomePage('challenge');
+      setHomeVisible(true);
+      setChallengeError(t.home.roomClosed);
+    }
+  }, [
+    challengeRoom,
+    game.challengeRoomId,
+    game.mode,
+    session?.user?.id,
+    t.home.roomClosed,
+  ]);
+
   const advanceTutorial = useCallback(() => {
     playSound('tap');
     setTutorialStep((currentStep) => Math.min(currentStep + 1, tutorialStepCount));
@@ -2027,6 +2234,31 @@ export default function App() {
     }
     playSound(finalGame.complete ? 'complete' : hitTarget ? 'target' : 'result');
 
+    if (
+      finalGame.mode === MODE_CHALLENGE &&
+      finalGame.challengeRoomId
+    ) {
+      const solvedTargets = finalGame.targets.filter(
+        (target) => target.solved,
+      ).length;
+      setChallengeRoom((currentRoom) =>
+        currentRoom?.room_id === finalGame.challengeRoomId
+          ? {
+              ...currentRoom,
+              own_moves: finalGame.steps,
+              own_solved_targets: solvedTargets,
+            }
+          : currentRoom,
+      );
+      updateChallengeProgress(
+        finalGame.challengeRoomId,
+        solvedTargets,
+        finalGame.steps,
+      ).catch(() => {
+        // Polling reconciles transient race progress failures.
+      });
+    }
+
     if (finalGame.complete) {
       const finalScore = calculateScore(finalGame);
       const completion = recordGameCompletion(progress, finalGame, finalScore);
@@ -2038,7 +2270,10 @@ export default function App() {
       const userId = session?.user?.id || null;
       submitGameResult(
         buildGameResultPayload({
-          game: finalGame,
+          game:
+            finalGame.mode === MODE_CHALLENGE
+              ? { ...finalGame, mode: MODE_NORMAL }
+              : finalGame,
           score: finalScore,
           awardedScore: completion.summary.score,
           durationSeconds: getElapsedSeconds(timerStartRef.current),
@@ -2054,6 +2289,24 @@ export default function App() {
         .catch(() => {
           // Cloud sync should never block or interrupt local gameplay.
         });
+
+      if (
+        finalGame.mode === MODE_CHALLENGE &&
+        finalGame.challengeRoomId
+      ) {
+        submitChallengeResult(
+          finalGame.challengeRoomId,
+          finalGame.steps,
+        )
+          .then((room) => {
+            if (room) {
+              setChallengeRoom(room);
+            }
+          })
+          .catch(() => {
+            setChallengeError(t.home.roomActionError);
+          });
+      }
     }
   }, [bestScores, game, hintUseCount, language, operation, playSound, progress, refreshCloudProgress, session?.user?.id, t]);
 
@@ -2176,6 +2429,17 @@ export default function App() {
     setCompletionSummary(null);
   }, [playSound]);
 
+  const returnToChallengePage = useCallback(() => {
+    playSound('tap');
+    setCompletionSummary(null);
+    setHomePage('challenge');
+    setHomeVisible(true);
+    const userId = activeUserIdRef.current;
+    if (userId) {
+      refreshChallengeRoom(userId);
+    }
+  }, [playSound, refreshChallengeRoom]);
+
   const openTrainingPage = useCallback(() => {
     playSound('tap');
     setHomePage('training');
@@ -2231,8 +2495,14 @@ export default function App() {
 
   const resetChallengeRoom = useCallback(async () => {
     const roomId = challengeRoom?.room_id;
+    const userId = activeUserIdRef.current;
     setChallengeRoom(null);
+    setChallengeCountdown(null);
+    setChallengeError('');
     playSound('tap');
+    if (roomId && userId) {
+      await clearChallengeGame(userId, roomId).catch(() => {});
+    }
     if (roomId) {
       await cancelChallengeRoom(roomId).catch(() => {});
     }
@@ -2240,6 +2510,7 @@ export default function App() {
 
   const handleChallengeReady = useCallback((room) => {
     setChallengeRoom(room);
+    setChallengeError('');
     setSettingsVisible(false);
     setAccountVisible(false);
     setNotificationsVisible(false);
@@ -2248,17 +2519,41 @@ export default function App() {
     setHomePage('challenge');
   }, []);
 
-  const startRoomChallenge = useCallback(() => {
-    setChallengeRoom((currentRoom) =>
-      currentRoom
-        ? {
-            ...currentRoom,
-            status: 'development',
-          }
-        : currentRoom,
-    );
+  const startRoomChallenge = useCallback(async () => {
+    if (!challengeRoom?.room_id || challengeActionBusy) {
+      return;
+    }
+
     playSound('tap');
-  }, [playSound]);
+    setChallengeError('');
+
+    if (challengeRoom.status === 'active') {
+      await launchChallengeGame(challengeRoom);
+      return;
+    }
+
+    if (challengeRoom.status !== 'ready') {
+      return;
+    }
+
+    setChallengeActionBusy(true);
+    try {
+      const room = await readyChallengeRoom(challengeRoom.room_id);
+      if (room) {
+        setChallengeRoom(room);
+      }
+    } catch {
+      setChallengeError(t.home.roomActionError);
+    } finally {
+      setChallengeActionBusy(false);
+    }
+  }, [
+    challengeActionBusy,
+    challengeRoom,
+    launchChallengeGame,
+    playSound,
+    t.home.roomActionError,
+  ]);
 
   const showHome = useCallback(() => {
     setOperation(null);
@@ -2351,6 +2646,9 @@ export default function App() {
         >
         {homeVisible ? (
           <HomeScreen
+            challengeActionBusy={challengeActionBusy}
+            challengeCountdown={challengeCountdown}
+            challengeError={challengeError}
             challengeRoom={challengeRoom}
             friendRequestCount={incomingFriendRequestCount}
             homePage={homePage}
@@ -2424,21 +2722,25 @@ export default function App() {
               metrics={metrics}
               onPress={openSettings}
             />
-            <IconButton
-              accessibilityLabel={t.actions.resetA11y}
-              icon="↺"
-              label={t.actions.reset}
-              metrics={metrics}
-              onPress={() => startNewGame(game.difficulty, true)}
-            />
-            <IconButton
-              accessibilityLabel={t.actions.newGameA11y}
-              icon="+"
-              label={t.actions.newGame}
-              metrics={metrics}
-              primary
-              onPress={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
-            />
+            {game.mode !== MODE_CHALLENGE ? (
+              <>
+                <IconButton
+                  accessibilityLabel={t.actions.resetA11y}
+                  icon="↺"
+                  label={t.actions.reset}
+                  metrics={metrics}
+                  onPress={() => startNewGame(game.difficulty, true)}
+                />
+                <IconButton
+                  accessibilityLabel={t.actions.newGameA11y}
+                  icon="+"
+                  label={t.actions.newGame}
+                  metrics={metrics}
+                  primary
+                  onPress={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
+                />
+              </>
+            ) : null}
           </View>
         </View>
 
@@ -2453,11 +2755,27 @@ export default function App() {
           />
         </View>
 
+        {game.mode === MODE_CHALLENGE && challengeRoom ? (
+          <View style={[styles.raceStatusBar, { marginBottom: metrics.blockGap }]}>
+            <Text numberOfLines={1} style={styles.raceStatusName}>
+              {challengeRoom.opponent_display_name ||
+                `@${challengeRoom.opponent_username}`}
+            </Text>
+            <Text numberOfLines={1} style={styles.raceStatusProgress}>
+              {t.home.roomProgress(
+                game.targets.filter((target) => target.solved).length,
+                challengeRoom.opponent_solved_targets,
+                challengeRoom.target_count,
+              )}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={[styles.gameArea, { gap: metrics.gameGap }, metrics.isWide && styles.gameAreaWide]}>
           <View style={[styles.boardPane, metrics.isWide && { width: metrics.boardSide + 28 }]}>
             <View style={[styles.sectionHeader, { marginBottom: metrics.blockGap }]}>
               <View>
-                {game.mode !== MODE_WEEKLY ? (
+                {![MODE_WEEKLY, MODE_CHALLENGE].includes(game.mode) ? (
                   <Text style={styles.eyebrow}>{t.gameNames[game.difficulty]}</Text>
                 ) : null}
                 <Text style={[styles.sectionTitle, { fontSize: metrics.sectionTitleSize }]}>
@@ -2554,13 +2872,25 @@ export default function App() {
               <Pressable
                 accessibilityLabel={t.actions.undoA11y}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: undoStack.length === 0 }}
-                disabled={undoStack.length === 0}
+                accessibilityState={{
+                  disabled:
+                    undoStack.length === 0 ||
+                    game.mode === MODE_CHALLENGE,
+                }}
+                disabled={
+                  undoStack.length === 0 ||
+                  game.mode === MODE_CHALLENGE
+                }
                 onPress={undo}
                 style={({ pressed }) => [
                   styles.undoButton,
-                  undoStack.length === 0 && styles.disabledButton,
-                  pressed && undoStack.length > 0 && styles.pressed,
+                  (undoStack.length === 0 ||
+                    game.mode === MODE_CHALLENGE) &&
+                    styles.disabledButton,
+                  pressed &&
+                    undoStack.length > 0 &&
+                    game.mode !== MODE_CHALLENGE &&
+                    styles.pressed,
                 ]}
               >
                 <Text style={styles.undoText}>{t.actions.undo}</Text>
@@ -2589,8 +2919,21 @@ export default function App() {
           visible={tutorialVisible}
         />
         <CompletionPanel
-          onClose={closeCompletion}
-          onNext={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
+          challengeRoom={
+            game.mode === MODE_CHALLENGE ? challengeRoom : null
+          }
+          onClose={
+            game.mode === MODE_CHALLENGE
+              ? returnToChallengePage
+              : closeCompletion
+          }
+          onNext={() =>
+            game.mode === MODE_CHALLENGE
+              ? returnToChallengePage()
+              : game.mode === MODE_WEEKLY
+                ? startWeeklyGame()
+                : startNewGame(game.difficulty)
+          }
           strings={t}
           summary={completionSummary}
         />
@@ -3145,6 +3488,9 @@ function AnimatedGlow({ style }) {
 }
 
 function HomeScreen({
+  challengeActionBusy,
+  challengeCountdown,
+  challengeError,
   challengeRoom,
   friendRequestCount,
   homePage,
@@ -3338,6 +3684,27 @@ function HomeScreen({
       ? challengeRoom.opponent_display_name ||
         `@${challengeRoom.opponent_username}`
       : '';
+    const raceMessage = challengeRoom
+      ? challengeRoom.status === 'completed'
+        ? getChallengeOutcomeText(challengeRoom, strings)
+        : challengeRoom.own_completed_at
+          ? strings.home.roomOutcomeWaiting
+          : challengeRoom.status === 'active'
+            ? challengeCountdown > 0
+              ? strings.home.roomCountdown(challengeCountdown)
+              : strings.home.roomRaceActive
+            : challengeRoom.own_ready
+              ? strings.home.roomReadyDone
+              : strings.home.roomReadyMessage
+      : '';
+    const canStartRace = Boolean(
+      challengeRoom &&
+        !challengeRoom.own_completed_at &&
+        ((challengeRoom.status === 'ready' &&
+          !challengeRoom.own_ready) ||
+          (challengeRoom.status === 'active' &&
+            challengeCountdown === 0)),
+    );
 
     return (
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
@@ -3376,9 +3743,43 @@ function HomeScreen({
                   </Text>
                   <Text style={styles.roomOpponent}>{opponentName}</Text>
                   <Text style={styles.roomMessage}>
-                    {strings.home.roomReadyMessage}
+                    {raceMessage}
                   </Text>
+                  {challengeRoom.status !== 'ready' ? (
+                    <Text style={styles.roomProgressText}>
+                      {strings.home.roomProgress(
+                        challengeRoom.own_solved_targets,
+                        challengeRoom.opponent_solved_targets,
+                        challengeRoom.target_count,
+                      )}
+                    </Text>
+                  ) : null}
                 </View>
+                {challengeError ? (
+                  <Text style={styles.formError}>{challengeError}</Text>
+                ) : null}
+                {canStartRace ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={challengeActionBusy}
+                    onPress={onStartChallengeRace}
+                    style={({ pressed }) => [
+                      styles.homeButton,
+                      challengeActionBusy && styles.disabledButton,
+                      pressed && !challengeActionBusy && styles.pressed,
+                    ]}
+                  >
+                    {challengeActionBusy ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.homeButtonText}>
+                        {challengeRoom.status === 'active'
+                          ? strings.home.roomResume
+                          : strings.home.roomStart}
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   onPress={onResetChallengeRoom}
@@ -3402,6 +3803,9 @@ function HomeScreen({
                     {strings.home.challengeStatusText}
                   </Text>
                 </View>
+                {challengeError ? (
+                  <Text style={styles.formError}>{challengeError}</Text>
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   onPress={onOpenFriends}
@@ -4070,7 +4474,13 @@ function SettingsPanel({
   );
 }
 
-function CompletionPanel({ onClose, onNext, strings, summary }) {
+function CompletionPanel({
+  challengeRoom,
+  onClose,
+  onNext,
+  strings,
+  summary,
+}) {
   if (!summary) {
     return null;
   }
@@ -4087,6 +4497,23 @@ function CompletionPanel({ onClose, onNext, strings, summary }) {
           <MiniStat icon="◆" label={strings.completion.targets} value={summary.targets} />
           <MiniStat icon={league.icon} label={strings.completion.league} value={strings.leagues[league.id]} />
         </View>
+        {challengeRoom ? (
+          <View style={styles.completionRace}>
+            <Text style={styles.subsectionTitle}>
+              {strings.completion.raceTitle}
+            </Text>
+            <Text style={styles.completionRaceText}>
+              {getChallengeOutcomeText(challengeRoom, strings)}
+            </Text>
+            <Text style={styles.noteText}>
+              {strings.home.roomProgress(
+                challengeRoom.own_solved_targets,
+                challengeRoom.opponent_solved_targets,
+                challengeRoom.target_count,
+              )}
+            </Text>
+          </View>
+        ) : null}
         <Text style={styles.subsectionTitle}>{strings.completion.newBadges}</Text>
         {summary.newBadgeIds.length > 0 ? (
           <View style={styles.badgeGrid}>
@@ -4101,25 +4528,55 @@ function CompletionPanel({ onClose, onNext, strings, summary }) {
         ) : (
           <Text style={styles.emptyText}>{strings.completion.noNewBadges}</Text>
         )}
-        <View style={styles.completionActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.secondaryButtonText}>{strings.completion.close}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onNext}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>{strings.completion.next}</Text>
-          </Pressable>
-        </View>
+        {challengeRoom ? (
+          <View style={styles.completionActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {strings.home.roomResume}
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.completionActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>{strings.completion.close}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onNext}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryButtonText}>{strings.completion.next}</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
+}
+
+function getChallengeOutcomeText(room, strings) {
+  if (room?.outcome === 'won') {
+    return strings.home.roomOutcomeWon;
+  }
+  if (room?.outcome === 'lost') {
+    return strings.home.roomOutcomeLost;
+  }
+  if (room?.outcome === 'tie') {
+    return strings.home.roomOutcomeTie;
+  }
+  return strings.home.roomOutcomeWaiting;
 }
 
 function PanelSection({ children, title }) {
@@ -4376,6 +4833,8 @@ function measureTile(ref, number) {
 function createGame(difficulty = 'paper', existingPuzzle = null, strings = STRINGS.tr, options = {}) {
   const mode = options.mode || MODE_NORMAL;
   const challengeKey = options.challengeKey || null;
+  const challengeRoomId = options.challengeRoomId || null;
+  const challengePuzzleSeed = options.challengePuzzleSeed || null;
   const puzzle =
     existingPuzzle ||
     (difficulty === 'paper'
@@ -4390,6 +4849,8 @@ function createGame(difficulty = 'paper', existingPuzzle = null, strings = STRIN
 
   return {
     challengeKey,
+    challengePuzzleSeed,
+    challengeRoomId,
     difficulty,
     boardSize: puzzle.boardSize,
     name: strings.gameNames[difficulty] || puzzle.name,
@@ -4440,6 +4901,13 @@ function makeDailyPuzzle(dateKey, difficulty = 'medium') {
 
 function makeWeeklyPuzzle(weekKey) {
   return makeRandomPuzzle(DIFFICULTIES.weekly, makeSeededRandom(`weekly-${weekKey}`));
+}
+
+function makeChallengePuzzle(puzzleSeed) {
+  return makeRandomPuzzle(
+    DIFFICULTIES.hard,
+    makeSeededRandom(`challenge-${puzzleSeed}`),
+  );
 }
 
 function makeRandomPuzzle(config, random = Math.random) {
@@ -4793,6 +5261,54 @@ function bestScoreKey(difficulty) {
 
 function progressStorageKey(userId) {
   return `${PROGRESS_OWNER_KEY_PREFIX}:${userId ? `user:${userId}` : 'guest'}`;
+}
+
+function challengeGameStorageKey(userId, roomId) {
+  return `${CHALLENGE_GAME_PREFIX}:${userId}:${roomId}`;
+}
+
+async function saveChallengeGame(userId, game) {
+  if (!userId || !game?.challengeRoomId || !game?.challengePuzzleSeed) {
+    return;
+  }
+  await AsyncStorage.setItem(
+    challengeGameStorageKey(userId, game.challengeRoomId),
+    JSON.stringify(game),
+  );
+}
+
+async function loadChallengeGame(userId, room) {
+  try {
+    const raw = await AsyncStorage.getItem(
+      challengeGameStorageKey(userId, room.room_id),
+    );
+    if (!raw) {
+      return null;
+    }
+
+    const stored = JSON.parse(raw);
+    if (
+      stored?.mode !== MODE_CHALLENGE ||
+      stored?.challengeRoomId !== room.room_id ||
+      stored?.challengePuzzleSeed !== room.puzzle_seed ||
+      !Array.isArray(stored.bank) ||
+      !Array.isArray(stored.targets) ||
+      !Array.isArray(stored.history)
+    ) {
+      return null;
+    }
+
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+async function clearChallengeGame(userId, roomId) {
+  if (!userId || !roomId) {
+    return;
+  }
+  await AsyncStorage.removeItem(challengeGameStorageKey(userId, roomId));
 }
 
 async function loadProgress(userId = null) {
@@ -5179,6 +5695,30 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
+  },
+  raceStatusBar: {
+    alignItems: 'center',
+    backgroundColor: '#e7fbf8',
+    borderColor: '#8fe4df',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 30,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  raceStatusName: {
+    color: '#147b76',
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  raceStatusProgress: {
+    color: '#20242a',
+    fontSize: 11,
+    fontWeight: '900',
+    marginLeft: 8,
   },
   statCard: {
     backgroundColor: '#ffffff',
@@ -5745,6 +6285,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 17,
     marginTop: 5,
+  },
+  roomProgressText: {
+    color: '#147b76',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 8,
   },
   roomActions: {
     flexDirection: 'row',
@@ -6586,6 +7132,20 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 7,
     marginTop: 10,
+  },
+  completionRace: {
+    backgroundColor: '#e7fbf8',
+    borderColor: '#8fe4df',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 11,
+    padding: 10,
+  },
+  completionRaceText: {
+    color: '#147b76',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 3,
   },
   completionActions: {
     flexDirection: 'row',

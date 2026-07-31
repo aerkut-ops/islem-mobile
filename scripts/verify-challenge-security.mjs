@@ -16,13 +16,26 @@ const SAFE_ROOM_KEYS = new Set([
   'expires_at',
   'invite_id',
   'is_host',
+  'opponent_completed_at',
   'opponent_display_name',
   'opponent_id',
+  'opponent_moves',
+  'opponent_ready',
+  'opponent_score',
+  'opponent_solved_targets',
   'opponent_username',
+  'outcome',
+  'own_completed_at',
+  'own_moves',
+  'own_ready',
+  'own_score',
+  'own_solved_targets',
   'puzzle_seed',
   'room_code',
   'room_id',
+  'started_at',
   'status',
+  'target_count',
 ]);
 const ACCOUNTS = [
   {
@@ -153,6 +166,13 @@ async function rpc(context, session, functionName, parameters = {}) {
   return result.payload;
 }
 
+async function waitForRoomStart(startedAt) {
+  const waitMs = Math.max(0, Date.parse(startedAt) - Date.now() + 100);
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}
+
 async function listConnections(context, session) {
   return rpc(context, session, 'list_friend_connections');
 }
@@ -243,7 +263,11 @@ async function cleanupChallenges(context, sessions) {
 }
 
 async function assertDirectReadsDenied(context, session) {
-  for (const table of ['challenge_invites', 'challenge_rooms']) {
+  for (const table of [
+    'challenge_invites',
+    'challenge_room_players',
+    'challenge_rooms',
+  ]) {
     const response = await fetch(
       `${context.supabaseUrl}/rest/v1/${table}?select=*`,
       { headers: headers(context, session) },
@@ -265,6 +289,12 @@ async function assertAnonymousRpcDenied(context) {
     ['cancel_challenge_invite', { p_invite_id: null }],
     ['list_active_challenge_rooms', {}],
     ['cancel_challenge_room', { p_room_id: null }],
+    ['ready_challenge_room', { p_room_id: null }],
+    [
+      'update_challenge_progress',
+      { p_moves: 0, p_room_id: null, p_solved_targets: 0 },
+    ],
+    ['submit_challenge_result', { p_moves: 0, p_room_id: null }],
   ];
   for (const [functionName, parameters] of calls) {
     const { response } = await rawRpc(
@@ -427,6 +457,182 @@ async function main() {
   ) {
     throw new Error('Accepted challenge notification is missing.');
   }
+
+  const hostReady = await rpc(
+    context,
+    development,
+    'ready_challenge_room',
+    { p_room_id: hostRoom.room_id },
+  );
+  if (hostReady !== 'ready') {
+    throw new Error(`Unexpected first ready result: ${hostReady}.`);
+  }
+
+  const [hostWaitingRoom] = await rpc(
+    context,
+    development,
+    'list_active_challenge_rooms',
+  );
+  const [guestWaitingRoom] = await rpc(
+    context,
+    appReview,
+    'list_active_challenge_rooms',
+  );
+  if (
+    !hostWaitingRoom.own_ready ||
+    hostWaitingRoom.opponent_ready ||
+    guestWaitingRoom.own_ready ||
+    !guestWaitingRoom.opponent_ready
+  ) {
+    throw new Error('Ready state was not private and mirrored correctly.');
+  }
+
+  const earlyProgress = await rawRpc(
+    context,
+    development,
+    'update_challenge_progress',
+    {
+      p_moves: 1,
+      p_room_id: hostRoom.room_id,
+      p_solved_targets: 1,
+    },
+  );
+  if (earlyProgress.response.ok) {
+    throw new Error('Progress was accepted before both players were ready.');
+  }
+
+  const guestReady = await rpc(
+    context,
+    appReview,
+    'ready_challenge_room',
+    { p_room_id: hostRoom.room_id },
+  );
+  if (guestReady !== 'active') {
+    throw new Error(`Unexpected second ready result: ${guestReady}.`);
+  }
+
+  const [hostActiveRoom] = await rpc(
+    context,
+    development,
+    'list_active_challenge_rooms',
+  );
+  const [guestActiveRoom] = await rpc(
+    context,
+    appReview,
+    'list_active_challenge_rooms',
+  );
+  if (
+    hostActiveRoom.status !== 'active' ||
+    guestActiveRoom.status !== 'active' ||
+    hostActiveRoom.started_at !== guestActiveRoom.started_at ||
+    !hostActiveRoom.own_ready ||
+    !hostActiveRoom.opponent_ready ||
+    Object.keys(hostActiveRoom).some(
+      (key) => !SAFE_ROOM_KEYS.has(key),
+    )
+  ) {
+    throw new Error('The shared countdown state is inconsistent.');
+  }
+
+  const countdownProgress = await rawRpc(
+    context,
+    development,
+    'update_challenge_progress',
+    {
+      p_moves: 1,
+      p_room_id: hostRoom.room_id,
+      p_solved_targets: 1,
+    },
+  );
+  if (countdownProgress.response.ok) {
+    throw new Error('Progress was accepted during the shared countdown.');
+  }
+
+  await waitForRoomStart(hostActiveRoom.started_at);
+  if (
+    !(await rpc(
+      context,
+      development,
+      'update_challenge_progress',
+      {
+        p_moves: 2,
+        p_room_id: hostRoom.room_id,
+        p_solved_targets: 1,
+      },
+    ))
+  ) {
+    throw new Error('Valid race progress was not accepted.');
+  }
+
+  const [guestProgressRoom] = await rpc(
+    context,
+    appReview,
+    'list_active_challenge_rooms',
+  );
+  if (
+    guestProgressRoom.opponent_solved_targets !== 1 ||
+    guestProgressRoom.opponent_moves !== 2
+  ) {
+    throw new Error('Opponent race progress did not synchronize.');
+  }
+
+  const backwardsProgress = await rawRpc(
+    context,
+    development,
+    'update_challenge_progress',
+    {
+      p_moves: 1,
+      p_room_id: hostRoom.room_id,
+      p_solved_targets: 0,
+    },
+  );
+  if (backwardsProgress.response.ok) {
+    throw new Error('Race progress could move backwards.');
+  }
+
+  const hostResult = await rpc(
+    context,
+    development,
+    'submit_challenge_result',
+    { p_moves: 7, p_room_id: hostRoom.room_id },
+  );
+  if (hostResult !== 'waiting_for_opponent') {
+    throw new Error(`Unexpected first finish result: ${hostResult}.`);
+  }
+
+  const guestResult = await rpc(
+    context,
+    appReview,
+    'submit_challenge_result',
+    { p_moves: 8, p_room_id: hostRoom.room_id },
+  );
+  if (guestResult !== 'completed') {
+    throw new Error(`Unexpected final finish result: ${guestResult}.`);
+  }
+
+  const [hostCompletedRoom] = await rpc(
+    context,
+    development,
+    'list_active_challenge_rooms',
+  );
+  const [guestCompletedRoom] = await rpc(
+    context,
+    appReview,
+    'list_active_challenge_rooms',
+  );
+  if (
+    hostCompletedRoom.status !== 'completed' ||
+    guestCompletedRoom.status !== 'completed' ||
+    hostCompletedRoom.outcome !== 'won' ||
+    guestCompletedRoom.outcome !== 'lost' ||
+    hostCompletedRoom.own_score !== 136 ||
+    guestCompletedRoom.own_score !== 134
+  ) {
+    throw new Error('Server race outcome or score calculation is incorrect.');
+  }
+  console.log(
+    'PASS  Shared countdown, live progress, and server results are consistent.',
+  );
 
   if (
     !(await rpc(context, development, 'cancel_challenge_room', {

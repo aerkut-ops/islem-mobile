@@ -1,15 +1,42 @@
 const INVITE_DIRECTIONS = new Set(['incoming', 'outgoing']);
-const ROOM_STATUSES = new Set(['ready', 'active']);
+const ROOM_STATUSES = new Set(['ready', 'active', 'completed']);
+const ROOM_OUTCOMES = new Set([
+  'racing',
+  'waiting_for_opponent',
+  'won',
+  'lost',
+  'tie',
+]);
 
 function normalizeDate(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function normalizeOptionalDate(value) {
+  if (value == null) {
+    return null;
+  }
+  return normalizeDate(value) || undefined;
+}
+
 function normalizeRequiredText(value) {
   return typeof value === 'string' && value.trim()
     ? value.trim()
     : null;
+}
+
+function normalizeInteger(value, min, max) {
+  return Number.isInteger(value) && value >= min && value <= max
+    ? value
+    : null;
+}
+
+function normalizeOptionalInteger(value, min, max) {
+  if (value == null) {
+    return null;
+  }
+  return normalizeInteger(value, min, max) ?? undefined;
 }
 
 export function groupChallengeInvites(rows) {
@@ -60,7 +87,32 @@ export function normalizeChallengeRoom(row) {
   const opponentId = normalizeRequiredText(row?.opponent_id);
   const opponentUsername = normalizeRequiredText(row?.opponent_username);
   const createdAt = normalizeDate(row?.created_at);
+  const startedAt = normalizeOptionalDate(row?.started_at);
   const expiresAt = normalizeDate(row?.expires_at);
+  const targetCount = normalizeInteger(row?.target_count, 1, 16);
+  const ownSolvedTargets = normalizeInteger(
+    row?.own_solved_targets,
+    0,
+    targetCount || 16,
+  );
+  const opponentSolvedTargets = normalizeInteger(
+    row?.opponent_solved_targets,
+    0,
+    targetCount || 16,
+  );
+  const ownMoves = normalizeInteger(row?.own_moves, 0, 250);
+  const opponentMoves = normalizeInteger(row?.opponent_moves, 0, 250);
+  const ownScore = normalizeOptionalInteger(row?.own_score, 0, 100000);
+  const opponentScore = normalizeOptionalInteger(
+    row?.opponent_score,
+    0,
+    100000,
+  );
+  const ownCompletedAt = normalizeOptionalDate(row?.own_completed_at);
+  const opponentCompletedAt = normalizeOptionalDate(
+    row?.opponent_completed_at,
+  );
+  const outcome = normalizeRequiredText(row?.outcome);
 
   if (
     !roomId ||
@@ -71,7 +123,24 @@ export function normalizeChallengeRoom(row) {
     !opponentId ||
     !opponentUsername ||
     !createdAt ||
-    !expiresAt
+    !expiresAt ||
+    !targetCount ||
+    ownSolvedTargets == null ||
+    opponentSolvedTargets == null ||
+    ownMoves == null ||
+    opponentMoves == null ||
+    ownScore === undefined ||
+    opponentScore === undefined ||
+    ownCompletedAt === undefined ||
+    opponentCompletedAt === undefined ||
+    !ROOM_OUTCOMES.has(outcome) ||
+    (status !== 'ready' && !startedAt) ||
+    (status === 'completed' &&
+      (!ownCompletedAt ||
+        !opponentCompletedAt ||
+        !['won', 'lost', 'tie'].includes(outcome))) ||
+    (outcome === 'waiting_for_opponent' &&
+      (!ownCompletedAt || opponentCompletedAt))
   ) {
     return null;
   }
@@ -87,7 +156,20 @@ export function normalizeChallengeRoom(row) {
     opponent_username: opponentUsername,
     opponent_display_name: normalizeRequiredText(row?.opponent_display_name),
     created_at: createdAt,
+    started_at: startedAt,
     expires_at: expiresAt,
+    target_count: targetCount,
+    own_ready: row?.own_ready === true,
+    opponent_ready: row?.opponent_ready === true,
+    own_solved_targets: ownSolvedTargets,
+    opponent_solved_targets: opponentSolvedTargets,
+    own_moves: ownMoves,
+    opponent_moves: opponentMoves,
+    own_score: ownScore,
+    opponent_score: opponentScore,
+    own_completed_at: ownCompletedAt,
+    opponent_completed_at: opponentCompletedAt,
+    outcome,
   };
 }
 
