@@ -46,6 +46,10 @@ import {
   syncPushRegistration,
 } from './src/services/pushService';
 import {
+  pushActionFromNotification,
+  pushActionFromResponse,
+} from './src/services/pushNavigation.mjs';
+import {
   handleAuthCallback,
   subscribeToAuthChanges,
 } from './src/services/authService';
@@ -556,11 +560,13 @@ const STRINGS = {
       actionError: 'Bildirim kaldırılamadı. Lütfen tekrar dene.',
       retry: 'Tekrar dene',
       emptyTitle: 'Yeni bildirim yok',
-      emptyText: 'Arkadaşlık istekleri ve kabul yanıtları burada görünecek.',
+      emptyText: 'Arkadaşlık ve yarış bildirimleri burada görünecek.',
       friendRequest: (name) => `${name} sana arkadaşlık isteği gönderdi.`,
       friendAccepted: (name) => `${name} arkadaşlık isteğini kabul etti.`,
       challengeInvite: (name) => `${name} sana meydan okuma daveti gönderdi.`,
       challengeAccepted: (name) => `${name} meydan okuma davetini kabul etti.`,
+      challengeReady: (name) => `${name} yarış için hazır.`,
+      challengeStarted: (name) => `${name} hazır. Yarış başlıyor!`,
       openFriends: 'Arkadaşları aç',
       openChallenge: 'Meydan okumayı aç',
       dismiss: 'Bildirimi kaldır',
@@ -570,8 +576,8 @@ const STRINGS = {
       hoursAgo: (count) => `${count} sa önce`,
       daysAgo: (count) => `${count} gün önce`,
       settingsTitle: 'Bildirimler',
-      settingsEnabled: 'Arkadaşlık bildirimleri açık.',
-      settingsDisabled: 'İstek ve kabul bildirimlerini aç.',
+      settingsEnabled: 'Arkadaşlık ve yarış bildirimleri açık.',
+      settingsDisabled: 'Arkadaşlık ve yarış bildirimlerini aç.',
       settingsDenied: 'Telefon ayarlarından bildirim izni ver.',
       settingsAccount: 'Bildirimler için hesabına giriş yap.',
       settingsUnavailable: 'Bu cihazda bildirim kullanılamıyor.',
@@ -1064,11 +1070,13 @@ const STRINGS = {
       actionError: 'The notification could not be removed. Please try again.',
       retry: 'Try again',
       emptyTitle: 'No new notifications',
-      emptyText: 'Friend requests and accepted requests will appear here.',
+      emptyText: 'Friend and race notifications will appear here.',
       friendRequest: (name) => `${name} sent you a friend request.`,
       friendAccepted: (name) => `${name} accepted your friend request.`,
       challengeInvite: (name) => `${name} sent you a challenge invitation.`,
       challengeAccepted: (name) => `${name} accepted your challenge invitation.`,
+      challengeReady: (name) => `${name} is ready to race.`,
+      challengeStarted: (name) => `${name} is ready. The race is starting!`,
       openFriends: 'Open friends',
       openChallenge: 'Open challenge',
       dismiss: 'Dismiss notification',
@@ -1078,8 +1086,8 @@ const STRINGS = {
       hoursAgo: (count) => `${count}h ago`,
       daysAgo: (count) => `${count}d ago`,
       settingsTitle: 'Notifications',
-      settingsEnabled: 'Friend notifications are on.',
-      settingsDisabled: 'Turn on request and acceptance alerts.',
+      settingsEnabled: 'Friend and race notifications are on.',
+      settingsDisabled: 'Turn on friend and race notifications.',
       settingsDenied: 'Allow notifications in device settings.',
       settingsAccount: 'Sign in to use notifications.',
       settingsUnavailable: 'Notifications are unavailable on this device.',
@@ -1291,6 +1299,7 @@ export default function App() {
   const cloudRefreshIdRef = useRef(0);
   const challengeAutoOpenedRef = useRef(null);
   const challengeLaunchRef = useRef(null);
+  const pendingPushActionRef = useRef(null);
   progressRef.current = progress;
   activeUserIdRef.current = session?.user?.id || null;
 
@@ -2570,6 +2579,35 @@ export default function App() {
     playSound('tap');
   }, [playSound]);
 
+  const openPushAction = useCallback(
+    (action, userId) => {
+      if (!action || !userId) {
+        return;
+      }
+
+      if (action.notificationId) {
+        markNotificationsRead([action.notificationId])
+          .then(() => refreshUnreadNotificationCount(userId))
+          .catch(() => {});
+      }
+
+      setHomeVisible(true);
+      setSettingsVisible(false);
+      setAccountVisible(false);
+      setNotificationsVisible(false);
+      if (action.screen === 'challenge') {
+        setFriendsVisible(false);
+        setHomePage('challenge');
+        refreshChallengeRoom(userId);
+        return;
+      }
+
+      setHomePage('home');
+      setFriendsVisible(true);
+    },
+    [refreshChallengeRoom, refreshUnreadNotificationCount],
+  );
+
   useEffect(() => {
     const userId = session?.user?.id;
     if (!userId) {
@@ -2586,47 +2624,48 @@ export default function App() {
   useEffect(
     () =>
       subscribeToNotificationEvents({
-        onNotification: () => {
+        onNotification: (notification) => {
           const userId = activeUserIdRef.current;
           if (!userId) {
             return;
           }
           refreshIncomingFriendRequestCount(userId);
           refreshUnreadNotificationCount(userId);
+          const action = pushActionFromNotification(notification);
+          if (action?.screen === 'challenge') {
+            refreshChallengeRoom(userId);
+          }
         },
         onResponse: (response) => {
-          const destination =
-            response?.notification?.request?.content?.data?.screen;
-          const notificationId =
-            response?.notification?.request?.content?.data?.notificationId;
+          const action = pushActionFromResponse(response);
+          if (!action) {
+            return;
+          }
           const userId = activeUserIdRef.current;
-          if (userId && typeof notificationId === 'string') {
-            markNotificationsRead([notificationId])
-              .then(() => refreshUnreadNotificationCount(userId))
-              .catch(() => {});
+          if (!userId) {
+            pendingPushActionRef.current = action;
+            return;
           }
-          setHomeVisible(true);
-          setSettingsVisible(false);
-          setAccountVisible(false);
-          setNotificationsVisible(false);
-          if (destination === 'challenge') {
-            setFriendsVisible(false);
-            setHomePage('challenge');
-            if (userId) {
-              refreshChallengeRoom(userId);
-            }
-          } else {
-            setHomePage('home');
-            setFriendsVisible(true);
-          }
+          openPushAction(action, userId);
         },
       }),
     [
+      openPushAction,
       refreshIncomingFriendRequestCount,
       refreshChallengeRoom,
       refreshUnreadNotificationCount,
     ],
   );
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const action = pendingPushActionRef.current;
+    if (!userId || !action) {
+      return;
+    }
+    pendingPushActionRef.current = null;
+    openPushAction(action, userId);
+  }, [openPushAction, session?.user?.id]);
 
   return (
     <SafeAreaProvider>

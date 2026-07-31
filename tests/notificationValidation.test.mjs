@@ -24,7 +24,7 @@ test('notifications keep only safe supported fields', () => {
       },
       {
         notification_id: 'newer-notification',
-        notification_type: 'challenge_accepted',
+        notification_type: 'challenge_started',
         actor_id: 'actor-id',
         actor_username: 'player_one',
         entity_id: 'room-id',
@@ -35,7 +35,7 @@ test('notifications keep only safe supported fields', () => {
     [
       {
         notification_id: 'newer-notification',
-        notification_type: 'challenge_accepted',
+        notification_type: 'challenge_started',
         actor_id: 'actor-id',
         actor_username: 'player_one',
         actor_display_name: null,

@@ -219,7 +219,7 @@ async function ensureAndroidChannel() {
     return;
   }
   await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
-    name: 'Arkadaş bildirimleri',
+    name: 'Arkadaşlık ve yarış',
     importance: Notifications.AndroidImportance.HIGH,
     lightColor: '#1FA7A0',
     sound: 'default',

@@ -468,6 +468,22 @@ async function main() {
     throw new Error(`Unexpected first ready result: ${hostReady}.`);
   }
 
+  const guestReadyNotifications = await rpc(
+    context,
+    appReview,
+    'list_user_notifications',
+    { p_limit: 50 },
+  );
+  if (
+    !guestReadyNotifications.some(
+      (row) =>
+        row.notification_type === 'challenge_ready' &&
+        row.entity_id === hostRoom.room_id,
+    )
+  ) {
+    throw new Error('Opponent-ready notification is missing.');
+  }
+
   const [hostWaitingRoom] = await rpc(
     context,
     development,
@@ -509,6 +525,30 @@ async function main() {
   );
   if (guestReady !== 'active') {
     throw new Error(`Unexpected second ready result: ${guestReady}.`);
+  }
+
+  const [hostStartNotifications, guestStartNotifications] =
+    await Promise.all([
+      rpc(context, development, 'list_user_notifications', {
+        p_limit: 50,
+      }),
+      rpc(context, appReview, 'list_user_notifications', {
+        p_limit: 50,
+      }),
+    ]);
+  if (
+    !hostStartNotifications.some(
+      (row) =>
+        row.notification_type === 'challenge_started' &&
+        row.entity_id === hostRoom.room_id,
+    ) ||
+    guestStartNotifications.some(
+      (row) =>
+        row.notification_type === 'challenge_ready' &&
+        row.entity_id === hostRoom.room_id,
+    )
+  ) {
+    throw new Error('Race-start notification state is inconsistent.');
   }
 
   const [hostActiveRoom] = await rpc(
@@ -630,8 +670,24 @@ async function main() {
   ) {
     throw new Error('Server race outcome or score calculation is incorrect.');
   }
+  const completedNotifications = await rpc(
+    context,
+    development,
+    'list_user_notifications',
+    { p_limit: 50 },
+  );
+  if (
+    completedNotifications.some(
+      (row) =>
+        ['challenge_accepted', 'challenge_ready', 'challenge_started'].includes(
+          row.notification_type,
+        ) && row.entity_id === hostRoom.room_id,
+    )
+  ) {
+    throw new Error('Completed race notifications were not cleaned up.');
+  }
   console.log(
-    'PASS  Shared countdown, live progress, and server results are consistent.',
+    'PASS  Race notifications, shared countdown, progress, and results are consistent.',
   );
 
   if (

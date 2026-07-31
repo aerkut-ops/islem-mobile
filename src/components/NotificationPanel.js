@@ -14,6 +14,12 @@ import {
   markNotificationsRead,
 } from '../services/notificationService';
 
+const CHALLENGE_DESTINATION_TYPES = new Set([
+  'challenge_accepted',
+  'challenge_ready',
+  'challenge_started',
+]);
+
 export default function NotificationPanel({
   configured,
   loading,
@@ -160,7 +166,9 @@ export default function NotificationPanel({
                 handleDismiss(notification.notification_id)
               }
               onOpen={
-                notification.notification_type === 'challenge_accepted'
+                CHALLENGE_DESTINATION_TYPES.has(
+                  notification.notification_type,
+                )
                   ? handleOpenChallenge
                   : handleOpenFriends
               }
@@ -221,18 +229,20 @@ function NotificationRow({
   const message = {
     challenge_accepted: strings.challengeAccepted(name),
     challenge_invite: strings.challengeInvite(name),
+    challenge_ready: strings.challengeReady(name),
+    challenge_started: strings.challengeStarted(name),
     friend_accepted: strings.friendAccepted(name),
     friend_request: strings.friendRequest(name),
   }[notification.notification_type];
   const openLabel =
-    notification.notification_type === 'challenge_accepted'
+    CHALLENGE_DESTINATION_TYPES.has(notification.notification_type)
       ? strings.openChallenge
       : strings.openFriends;
 
   return (
     <View style={styles.notificationRow}>
       <Pressable
-        accessibilityLabel={`${message}. ${openLabel}`}
+        accessibilityLabel={`${message} ${openLabel}`}
         accessibilityRole="button"
         onPress={onOpen}
         style={({ pressed }) => [

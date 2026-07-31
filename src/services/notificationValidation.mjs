@@ -3,6 +3,8 @@ const NOTIFICATION_TYPES = new Set([
   'friend_accepted',
   'challenge_invite',
   'challenge_accepted',
+  'challenge_ready',
+  'challenge_started',
 ]);
 
 function normalizeNonNegativeInteger(value) {

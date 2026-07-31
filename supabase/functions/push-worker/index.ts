@@ -16,7 +16,9 @@ type ClaimedNotification = {
     | 'friend_request'
     | 'friend_accepted'
     | 'challenge_invite'
-    | 'challenge_accepted';
+    | 'challenge_accepted'
+    | 'challenge_ready'
+    | 'challenge_started';
   actor_id: string;
   actor_username: string;
   actor_display_name: string | null;
@@ -91,9 +93,19 @@ function notificationCopy(
       ? `${actor} sana meydan okuma daveti gönderdi.`
       : `${actor} sent you a challenge invitation.`;
   }
+  if (notification.notification_type === 'challenge_accepted') {
+    return locale === 'tr'
+      ? `${actor} meydan okuma davetini kabul etti.`
+      : `${actor} accepted your challenge invitation.`;
+  }
+  if (notification.notification_type === 'challenge_ready') {
+    return locale === 'tr'
+      ? `${actor} yarış için hazır.`
+      : `${actor} is ready to race.`;
+  }
   return locale === 'tr'
-    ? `${actor} meydan okuma davetini kabul etti.`
-    : `${actor} accepted your challenge invitation.`;
+    ? `${actor} hazır. Yarış başlıyor!`
+    : `${actor} is ready. The race is starting!`;
 }
 
 function normalizeTickets(payload: unknown) {
@@ -306,7 +318,11 @@ async function dispatchPendingNotifications(
             entityId: notification.entity_id,
             notificationId: notification.notification_id,
             screen:
-              notification.notification_type === 'challenge_accepted'
+              [
+                'challenge_accepted',
+                'challenge_ready',
+                'challenge_started',
+              ].includes(notification.notification_type)
                 ? 'challenge'
                 : 'friends',
             type: notification.notification_type,
