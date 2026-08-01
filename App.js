@@ -22,11 +22,13 @@ import {
   View,
 } from 'react-native';
 import AccountPanel from './src/components/AccountPanel';
+import ChallengeHistory from './src/components/ChallengeHistory';
 import FriendsPanel from './src/components/FriendsPanel';
 import NotificationPanel from './src/components/NotificationPanel';
 import {
   cancelChallengeRoom,
   loadActiveChallengeRoom,
+  loadChallengeHistory,
   readyChallengeRoom,
   submitChallengeResult,
   syncChallengeOperations,
@@ -638,6 +640,17 @@ const STRINGS = {
       roomStart: 'Hazırım',
       roomResume: 'Yarışa dön',
       roomReset: 'Odayı kapat',
+      historyTitle: 'Son yarışlar',
+      historyLoading: 'Yarış geçmişi yükleniyor.',
+      historyLoadError: 'Yarış geçmişi yüklenemedi.',
+      historyRetry: 'Tekrar dene',
+      historyEmpty: 'Tamamladığın yarışlar burada görünecek.',
+      historyMoves: (count) => `${count} işlem`,
+      historyOutcomes: {
+        won: { code: 'G', label: 'Galibiyet' },
+        lost: { code: 'M', label: 'Mağlubiyet' },
+        tie: { code: 'B', label: 'Berabere' },
+      },
       weeklyStart: 'Haftalık bulmacayı oyna',
       tutorialTitle: 'Öğretici',
       tutorialText: 'Örnek bölümde sürükle-bırak, işlem kadranı ve ara sonuçları adım adım öğren.',
@@ -1148,6 +1161,17 @@ const STRINGS = {
       roomStart: 'I am ready',
       roomResume: 'Return to race',
       roomReset: 'Close room',
+      historyTitle: 'Recent races',
+      historyLoading: 'Loading race history.',
+      historyLoadError: 'Race history could not be loaded.',
+      historyRetry: 'Try again',
+      historyEmpty: 'Your completed races will appear here.',
+      historyMoves: (count) => `${count} moves`,
+      historyOutcomes: {
+        won: { code: 'W', label: 'Win' },
+        lost: { code: 'L', label: 'Loss' },
+        tie: { code: 'T', label: 'Tie' },
+      },
       weeklyStart: 'Play weekly puzzle',
       tutorialTitle: 'Tutorial',
       tutorialText: 'Learn dragging, the operation dial, and result numbers step by step in the example mode.',
@@ -1261,6 +1285,9 @@ export default function App() {
   const [homeVisible, setHomeVisible] = useState(true);
   const [homePage, setHomePage] = useState('home');
   const [challengeRoom, setChallengeRoom] = useState(null);
+  const [challengeHistory, setChallengeHistory] = useState([]);
+  const [challengeHistoryLoading, setChallengeHistoryLoading] = useState(false);
+  const [challengeHistoryError, setChallengeHistoryError] = useState(false);
   const [challengeActionBusy, setChallengeActionBusy] = useState(false);
   const [challengeCountdown, setChallengeCountdown] = useState(null);
   const [challengeError, setChallengeError] = useState('');
@@ -1397,6 +1424,34 @@ export default function App() {
     }
   }, []);
 
+  const refreshChallengeHistory = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setChallengeHistory([]);
+      setChallengeHistoryLoading(false);
+      setChallengeHistoryError(false);
+      return [];
+    }
+
+    setChallengeHistoryLoading(true);
+    setChallengeHistoryError(false);
+    try {
+      const rows = await loadChallengeHistory();
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistory(rows);
+      }
+      return rows;
+    } catch {
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistoryError(true);
+      }
+      return [];
+    } finally {
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistoryLoading(false);
+      }
+    }
+  }, []);
+
   const refreshChallengeRoom = useCallback(async (userId) => {
     if (!userId || activeUserIdRef.current !== userId) {
       setChallengeRoom(null);
@@ -1464,6 +1519,17 @@ export default function App() {
     }
     refreshChallengeRoom(userId);
   }, [refreshChallengeRoom, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setChallengeHistory([]);
+      setChallengeHistoryLoading(false);
+      setChallengeHistoryError(false);
+      return;
+    }
+    refreshChallengeHistory(userId);
+  }, [refreshChallengeHistory, session?.user?.id]);
 
   useEffect(() => {
     if (authLoading) {
@@ -1728,6 +1794,7 @@ export default function App() {
       refreshUnreadNotificationCount(userId);
       refreshPushRegistration(userId);
       refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
     };
 
     const appStateSubscription = AppState.addEventListener(
@@ -1742,6 +1809,7 @@ export default function App() {
     return () => appStateSubscription.remove();
   }, [
     refreshCloudProgress,
+    refreshChallengeHistory,
     refreshChallengeRoom,
     refreshIncomingFriendRequestCount,
     refreshPushRegistration,
@@ -1931,6 +1999,18 @@ export default function App() {
     challengeRoom?.room_id,
     challengeRoom?.status,
     refreshChallengeRoom,
+    session?.user?.id,
+  ]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (userId && challengeRoom?.status === 'completed') {
+      refreshChallengeHistory(userId);
+    }
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    refreshChallengeHistory,
     session?.user?.id,
   ]);
 
@@ -2353,6 +2433,9 @@ export default function App() {
           .then((room) => {
             if (room) {
               setChallengeRoom(room);
+              if (room.status === 'completed' && userId) {
+                refreshChallengeHistory(userId);
+              }
             }
           })
           .catch(() => {
@@ -2360,7 +2443,7 @@ export default function App() {
           });
       }
     }
-  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, refreshCloudProgress, session?.user?.id, t]);
+  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, refreshChallengeHistory, refreshCloudProgress, session?.user?.id, t]);
 
   const swapOperationNumbers = useCallback(() => {
     setOperation((currentOperation) => {
@@ -2489,8 +2572,9 @@ export default function App() {
     const userId = activeUserIdRef.current;
     if (userId) {
       refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
     }
-  }, [playSound, refreshChallengeRoom]);
+  }, [playSound, refreshChallengeHistory, refreshChallengeRoom]);
 
   const openTrainingPage = useCallback(() => {
     playSound('tap');
@@ -2513,8 +2597,9 @@ export default function App() {
     const userId = activeUserIdRef.current;
     if (userId) {
       refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
     }
-  }, [playSound, refreshChallengeRoom]);
+  }, [playSound, refreshChallengeHistory, refreshChallengeRoom]);
 
   const openStatsPage = useCallback(() => {
     playSound('tap');
@@ -2734,10 +2819,14 @@ export default function App() {
             challengeActionBusy={challengeActionBusy}
             challengeCountdown={challengeCountdown}
             challengeError={challengeError}
+            challengeHistory={challengeHistory}
+            challengeHistoryError={challengeHistoryError}
+            challengeHistoryLoading={challengeHistoryLoading}
             challengeRoom={challengeRoom}
             friendRequestCount={incomingFriendRequestCount}
             homePage={homePage}
             league={currentLeague}
+            language={language}
             onBackHome={showHomeMenu}
             onCreateChallengeRoom={createChallengeRoom}
             onFindChallengeOpponent={findChallengeOpponent}
@@ -2752,6 +2841,12 @@ export default function App() {
             onOpenTraining={openTrainingPage}
             onOpenWeekly={openWeeklyPage}
             onResetChallengeRoom={resetChallengeRoom}
+            onRetryChallengeHistory={() => {
+              const userId = activeUserIdRef.current;
+              if (userId) {
+                refreshChallengeHistory(userId);
+              }
+            }}
             onStartChallengeRace={startRoomChallenge}
             onStartDaily={startDailyGame}
             onStartPractice={(difficulty) => startNewGame(difficulty)}
@@ -3576,10 +3671,14 @@ function HomeScreen({
   challengeActionBusy,
   challengeCountdown,
   challengeError,
+  challengeHistory,
+  challengeHistoryError,
+  challengeHistoryLoading,
   challengeRoom,
   friendRequestCount,
   homePage,
   league,
+  language,
   onBackHome,
   onCreateChallengeRoom,
   onFindChallengeOpponent,
@@ -3594,6 +3693,7 @@ function HomeScreen({
   onOpenTraining,
   onOpenWeekly,
   onResetChallengeRoom,
+  onRetryChallengeHistory,
   onStartChallengeRace,
   onStartDaily,
   onStartPractice,
@@ -3906,6 +4006,14 @@ function HomeScreen({
               </>
             )}
           </View>
+          <ChallengeHistory
+            error={challengeHistoryError}
+            language={language}
+            loading={challengeHistoryLoading}
+            onRetry={onRetryChallengeHistory}
+            rows={challengeHistory}
+            strings={strings.home}
+          />
         </View>
       </ScrollView>
     );

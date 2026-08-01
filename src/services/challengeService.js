@@ -1,5 +1,6 @@
 import {
   groupChallengeInvites,
+  normalizeChallengeHistory,
   normalizeChallengeResponse,
   normalizeChallengeRooms,
 } from './challengeValidation.mjs';
@@ -36,6 +37,19 @@ export async function loadActiveChallengeRooms() {
 export async function loadActiveChallengeRoom() {
   const rooms = await loadActiveChallengeRooms();
   return rooms[0] || null;
+}
+
+export async function loadChallengeHistory(limit = 20) {
+  requireChallengeService();
+
+  const { data, error } = await supabase.rpc('list_challenge_history', {
+    p_limit: limit,
+  });
+  if (error) {
+    throw error;
+  }
+
+  return normalizeChallengeHistory(data);
 }
 
 export async function sendChallengeInvite(playerId) {

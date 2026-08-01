@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   groupChallengeInvites,
+  normalizeChallengeHistory,
+  normalizeChallengeHistoryEntry,
   normalizeChallengeResponse,
   normalizeChallengeRoom,
   normalizeChallengeRooms,
@@ -123,6 +125,59 @@ test('completed challenge rooms require both safe results', () => {
       ...completed,
       opponent_completed_at: null,
     }),
+    null,
+  );
+});
+
+test('challenge history keeps only completed safe summaries', () => {
+  const history = {
+    room_id: 'history-room',
+    opponent_id: 'opponent-id',
+    opponent_username: 'rakip',
+    opponent_display_name: 'Rakip',
+    outcome: 'won',
+    own_score: 140,
+    opponent_score: 136,
+    own_moves: 5,
+    opponent_moves: 7,
+    own_duration_seconds: 18,
+    opponent_duration_seconds: 26,
+    target_count: 5,
+    completed_at: '2026-08-02T10:00:00.000Z',
+  };
+
+  assert.deepEqual(
+    normalizeChallengeHistoryEntry({ ...history, email: 'hidden' }),
+    history,
+  );
+  assert.deepEqual(
+    normalizeChallengeHistory([history, { ...history, outcome: 'racing' }]),
+    [history],
+  );
+});
+
+test('invalid challenge history summaries are rejected', () => {
+  const history = {
+    room_id: 'history-room',
+    opponent_id: 'opponent-id',
+    opponent_username: 'rakip',
+    outcome: 'lost',
+    own_score: 130,
+    opponent_score: 140,
+    own_moves: 10,
+    opponent_moves: 5,
+    own_duration_seconds: 40,
+    opponent_duration_seconds: 20,
+    target_count: 5,
+    completed_at: '2026-08-02T10:00:00.000Z',
+  };
+
+  assert.equal(
+    normalizeChallengeHistoryEntry({ ...history, own_moves: 0 }),
+    null,
+  );
+  assert.equal(
+    normalizeChallengeHistoryEntry({ ...history, completed_at: 'invalid' }),
     null,
   );
 });

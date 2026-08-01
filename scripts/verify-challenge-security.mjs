@@ -48,6 +48,21 @@ const SAFE_ROOM_KEYS = new Set([
   'status',
   'target_count',
 ]);
+const SAFE_HISTORY_KEYS = new Set([
+  'completed_at',
+  'opponent_display_name',
+  'opponent_duration_seconds',
+  'opponent_id',
+  'opponent_moves',
+  'opponent_score',
+  'opponent_username',
+  'outcome',
+  'own_duration_seconds',
+  'own_moves',
+  'own_score',
+  'room_id',
+  'target_count',
+]);
 const ACCOUNTS = [
   {
     email: 'islemappsupport+test@gmail.com',
@@ -293,6 +308,7 @@ async function cleanupChallenges(context, sessions) {
 async function assertDirectReadsDenied(context, session) {
   for (const table of [
     'challenge_invites',
+    'challenge_match_history',
     'challenge_room_players',
     'challenge_rooms',
   ]) {
@@ -316,6 +332,7 @@ async function assertAnonymousRpcDenied(context) {
     ],
     ['cancel_challenge_invite', { p_invite_id: null }],
     ['list_active_challenge_rooms', {}],
+    ['list_challenge_history', { p_limit: 20 }],
     ['cancel_challenge_room', { p_room_id: null }],
     [
       'ready_challenge_room',
@@ -808,6 +825,37 @@ async function main() {
   ) {
     throw new Error('Server race outcome or score calculation is incorrect.');
   }
+
+  const [hostHistory, guestHistory] = await Promise.all([
+    rpc(context, development, 'list_challenge_history', { p_limit: 20 }),
+    rpc(context, appReview, 'list_challenge_history', { p_limit: 20 }),
+  ]);
+  const hostHistoryEntry = hostHistory.find(
+    (row) => row.room_id === hostRoom.room_id,
+  );
+  const guestHistoryEntry = guestHistory.find(
+    (row) => row.room_id === hostRoom.room_id,
+  );
+  if (
+    !hostHistoryEntry ||
+    !guestHistoryEntry ||
+    hostHistoryEntry.opponent_id !== appReview.userId ||
+    guestHistoryEntry.opponent_id !== development.userId ||
+    hostHistoryEntry.outcome !== 'won' ||
+    guestHistoryEntry.outcome !== 'lost' ||
+    hostHistoryEntry.own_score !== guestHistoryEntry.opponent_score ||
+    hostHistoryEntry.opponent_score !== guestHistoryEntry.own_score ||
+    hostHistoryEntry.own_moves !== guestHistoryEntry.opponent_moves ||
+    hostHistoryEntry.opponent_moves !== guestHistoryEntry.own_moves ||
+    Object.keys(hostHistoryEntry).some(
+      (key) => !SAFE_HISTORY_KEYS.has(key),
+    ) ||
+    Object.keys(guestHistoryEntry).some(
+      (key) => !SAFE_HISTORY_KEYS.has(key),
+    )
+  ) {
+    throw new Error('Challenge history is inconsistent or exposes private data.');
+  }
   const completedNotifications = await rpc(
     context,
     development,
@@ -839,6 +887,16 @@ async function main() {
     (await rpc(context, appReview, 'list_active_challenge_rooms')).length
   ) {
     throw new Error('Cancelled room remained visible to the guest.');
+  }
+  const [hostHistoryAfterClose, guestHistoryAfterClose] = await Promise.all([
+    rpc(context, development, 'list_challenge_history', { p_limit: 20 }),
+    rpc(context, appReview, 'list_challenge_history', { p_limit: 20 }),
+  ]);
+  if (
+    !hostHistoryAfterClose.some((row) => row.room_id === hostRoom.room_id) ||
+    !guestHistoryAfterClose.some((row) => row.room_id === hostRoom.room_id)
+  ) {
+    throw new Error('Closing a completed room removed its match history.');
   }
 
   await rpc(context, development, 'send_challenge_invite', {

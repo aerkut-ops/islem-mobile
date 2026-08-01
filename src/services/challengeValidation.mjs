@@ -7,6 +7,7 @@ const ROOM_OUTCOMES = new Set([
   'lost',
   'tie',
 ]);
+const HISTORY_OUTCOMES = new Set(['won', 'lost', 'tie']);
 
 function normalizeDate(value) {
   const date = new Date(value);
@@ -176,6 +177,68 @@ export function normalizeChallengeRoom(row) {
 export function normalizeChallengeRooms(rows) {
   return (Array.isArray(rows) ? rows : [])
     .map(normalizeChallengeRoom)
+    .filter(Boolean);
+}
+
+export function normalizeChallengeHistoryEntry(row) {
+  const roomId = normalizeRequiredText(row?.room_id);
+  const opponentId = normalizeRequiredText(row?.opponent_id);
+  const opponentUsername = normalizeRequiredText(row?.opponent_username);
+  const outcome = normalizeRequiredText(row?.outcome);
+  const ownScore = normalizeInteger(row?.own_score, 0, 100000);
+  const opponentScore = normalizeInteger(row?.opponent_score, 0, 100000);
+  const ownMoves = normalizeInteger(row?.own_moves, 1, 250);
+  const opponentMoves = normalizeInteger(row?.opponent_moves, 1, 250);
+  const ownDurationSeconds = normalizeInteger(
+    row?.own_duration_seconds,
+    0,
+    604800,
+  );
+  const opponentDurationSeconds = normalizeInteger(
+    row?.opponent_duration_seconds,
+    0,
+    604800,
+  );
+  const targetCount = normalizeInteger(row?.target_count, 1, 16);
+  const completedAt = normalizeDate(row?.completed_at);
+
+  if (
+    !roomId ||
+    !opponentId ||
+    !opponentUsername ||
+    !HISTORY_OUTCOMES.has(outcome) ||
+    ownScore == null ||
+    opponentScore == null ||
+    ownMoves == null ||
+    opponentMoves == null ||
+    ownDurationSeconds == null ||
+    opponentDurationSeconds == null ||
+    targetCount == null ||
+    !completedAt
+  ) {
+    return null;
+  }
+
+  return {
+    room_id: roomId,
+    opponent_id: opponentId,
+    opponent_username: opponentUsername,
+    opponent_display_name: normalizeRequiredText(row?.opponent_display_name),
+    outcome,
+    own_score: ownScore,
+    opponent_score: opponentScore,
+    own_moves: ownMoves,
+    opponent_moves: opponentMoves,
+    own_duration_seconds: ownDurationSeconds,
+    opponent_duration_seconds: opponentDurationSeconds,
+    target_count: targetCount,
+    completed_at: completedAt,
+  };
+}
+
+export function normalizeChallengeHistory(rows) {
+  return (Array.isArray(rows) ? rows : [])
+    .map(normalizeChallengeHistoryEntry)
     .filter(Boolean);
 }
 
