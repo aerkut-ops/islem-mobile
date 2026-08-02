@@ -169,6 +169,19 @@ async function listWeeklyLeaderboard(context, session, weekKey) {
   return rows;
 }
 
+async function listWeeklyLeagueLeaderboard(context, session, weekKey) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_weekly_league_leaderboard',
+    parameters: { p_week_key: weekKey },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Weekly league leaderboard returned an unexpected response.');
+  }
+  return rows;
+}
+
 async function listFriendActivity(context, session, limit = 12) {
   const rows = await rpc({
     ...context,
@@ -400,6 +413,7 @@ async function assertAnonymousRpcDenied(context) {
     'list_friend_activity',
     'list_friend_connections',
     'list_friend_weekly_leaderboard',
+    'list_weekly_league_leaderboard',
     'list_user_notifications',
     'mark_notifications_read',
     'register_push_device',
@@ -536,6 +550,48 @@ async function main() {
       throw new Error('Non-friend weekly scores are visible.');
     }
     console.log('PASS  Weekly scores remain hidden before friendship.');
+
+    const safeLeagueKeys = new Set([
+      'display_name',
+      'is_current_user',
+      'league_key',
+      'participant_count',
+      'player_id',
+      'rank_position',
+      'score',
+      'username',
+    ]);
+    const validLeagues = new Set([
+      'bronze',
+      'silver',
+      'gold',
+      'diamond',
+      'mastery',
+    ]);
+    for (const session of sessions) {
+      const rows = await listWeeklyLeagueLeaderboard(
+        context,
+        session,
+        weekKey,
+      );
+      const ownRow = rows.find((row) => row.player_id === session.userId);
+      if (
+        rows.length > 21 ||
+        !ownRow?.is_current_user ||
+        !validLeagues.has(ownRow.league_key) ||
+        rows.some(
+          (row) =>
+            row.league_key !== ownRow.league_key ||
+            Number(row.participant_count) < Number(row.rank_position) ||
+            Object.keys(row).some((key) => !safeLeagueKeys.has(key)),
+        )
+      ) {
+        throw new Error(
+          `${session.label} weekly league leaderboard is incomplete or unsafe.`,
+        );
+      }
+    }
+    console.log('PASS  Weekly league standings expose only bounded public fields.');
 
     const searchRows = await rpc({
       ...context,

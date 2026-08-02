@@ -24,6 +24,7 @@ import {
 import AccountPanel from './src/components/AccountPanel';
 import ChallengeHistory from './src/components/ChallengeHistory';
 import FriendsPanel from './src/components/FriendsPanel';
+import LeagueLeaderboard from './src/components/LeagueLeaderboard';
 import NotificationPanel from './src/components/NotificationPanel';
 import {
   cancelChallengeRoom,
@@ -61,7 +62,10 @@ import {
   hasQueuedGameResults,
   submitGameResult,
 } from './src/services/gameResultSync';
-import { loadFriendWeeklyLeaderboard } from './src/services/leaderboardService';
+import {
+  loadFriendWeeklyLeaderboard,
+  loadWeeklyLeagueLeaderboard,
+} from './src/services/leaderboardService';
 import { reconcilePlayerProgress } from './src/services/playerProgressReconcile.mjs';
 import {
   getCurrentSession,
@@ -651,6 +655,19 @@ const STRINGS = {
         lost: { code: 'M', label: 'Mağlubiyet' },
         tie: { code: 'B', label: 'Berabere' },
       },
+      leagueBoardTitle: 'Lig sıralaması',
+      leagueBoardPlayers: (count) => `${count} oyuncu`,
+      leagueBoardAccountRequired: 'Lig sıralaması için hesabına giriş yap.',
+      leagueBoardAccountAction: 'Giriş yap',
+      leagueBoardProfileRequired: 'Lig sıralamasına katılmak için kullanıcı adını belirle.',
+      leagueBoardProfileAction: 'Profili aç',
+      leagueBoardLoading: 'Lig sıralaması yükleniyor...',
+      leagueBoardError: 'Lig sıralaması şu anda yüklenemedi.',
+      leagueBoardRetry: 'Tekrar dene',
+      leagueBoardEmpty: 'Bu ligde henüz sıralama oluşmadı.',
+      leagueBoardYou: 'Sen',
+      leagueBoardRowLabel: (position, name, score) =>
+        `${position}. sıra, ${name}, ${score} puan`,
       weeklyStart: 'Haftalık bulmacayı oyna',
       tutorialTitle: 'Öğretici',
       tutorialText: 'Örnek bölümde sürükle-bırak, işlem kadranı ve ara sonuçları adım adım öğren.',
@@ -1172,6 +1189,20 @@ const STRINGS = {
         lost: { code: 'L', label: 'Loss' },
         tie: { code: 'T', label: 'Tie' },
       },
+      leagueBoardTitle: 'League standings',
+      leagueBoardPlayers: (count) =>
+        count === 1 ? '1 player' : `${count} players`,
+      leagueBoardAccountRequired: 'Sign in to view the league standings.',
+      leagueBoardAccountAction: 'Sign in',
+      leagueBoardProfileRequired: 'Choose a username to join the league standings.',
+      leagueBoardProfileAction: 'Open profile',
+      leagueBoardLoading: 'Loading league standings...',
+      leagueBoardError: 'League standings could not be loaded right now.',
+      leagueBoardRetry: 'Try again',
+      leagueBoardEmpty: 'No standings have formed in this league yet.',
+      leagueBoardYou: 'You',
+      leagueBoardRowLabel: (position, name, score) =>
+        `Rank ${position}, ${name}, ${score} points`,
       weeklyStart: 'Play weekly puzzle',
       tutorialTitle: 'Tutorial',
       tutorialText: 'Learn dragging, the operation dial, and result numbers step by step in the example mode.',
@@ -1305,6 +1336,9 @@ export default function App() {
   const [friendWeeklyLeaderboard, setFriendWeeklyLeaderboard] = useState(null);
   const [friendLeaderboardLoading, setFriendLeaderboardLoading] = useState(false);
   const [friendLeaderboardError, setFriendLeaderboardError] = useState('');
+  const [weeklyLeagueLeaderboard, setWeeklyLeagueLeaderboard] = useState([]);
+  const [weeklyLeagueLoading, setWeeklyLeagueLoading] = useState(false);
+  const [weeklyLeagueError, setWeeklyLeagueError] = useState(false);
   const [incomingFriendRequestCount, setIncomingFriendRequestCount] =
     useState(0);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
@@ -1452,6 +1486,34 @@ export default function App() {
     }
   }, []);
 
+  const refreshWeeklyLeagueLeaderboard = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setWeeklyLeagueLeaderboard([]);
+      setWeeklyLeagueLoading(false);
+      setWeeklyLeagueError(false);
+      return [];
+    }
+
+    setWeeklyLeagueLoading(true);
+    setWeeklyLeagueError(false);
+    try {
+      const rows = await loadWeeklyLeagueLeaderboard(weekKey);
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueLeaderboard(rows);
+      }
+      return rows;
+    } catch {
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueError(true);
+      }
+      return [];
+    } finally {
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueLoading(false);
+      }
+    }
+  }, [weekKey]);
+
   const refreshChallengeRoom = useCallback(async (userId) => {
     if (!userId || activeUserIdRef.current !== userId) {
       setChallengeRoom(null);
@@ -1530,6 +1592,30 @@ export default function App() {
     }
     refreshChallengeHistory(userId);
   }, [refreshChallengeHistory, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      !homeVisible ||
+      homePage !== 'stats' ||
+      !userId ||
+      !profile?.username
+    ) {
+      setWeeklyLeagueLeaderboard([]);
+      setWeeklyLeagueLoading(false);
+      setWeeklyLeagueError(false);
+      return;
+    }
+
+    refreshWeeklyLeagueLeaderboard(userId);
+  }, [
+    homePage,
+    homeVisible,
+    profile?.username,
+    refreshWeeklyLeagueLeaderboard,
+    session?.user?.id,
+    weeklyScore,
+  ]);
 
   useEffect(() => {
     if (authLoading) {
@@ -2847,6 +2933,12 @@ export default function App() {
                 refreshChallengeHistory(userId);
               }
             }}
+            onRetryWeeklyLeague={() => {
+              const userId = activeUserIdRef.current;
+              if (userId) {
+                refreshWeeklyLeagueLeaderboard(userId);
+              }
+            }}
             onStartChallengeRace={startRoomChallenge}
             onStartDaily={startDailyGame}
             onStartPractice={(difficulty) => startNewGame(difficulty)}
@@ -2860,6 +2952,9 @@ export default function App() {
             unreadNotificationCount={unreadNotificationCount}
             weekKey={weekKey}
             weeklyDone={weeklyDone}
+            weeklyLeagueError={weeklyLeagueError}
+            weeklyLeagueLeaderboard={weeklyLeagueLeaderboard}
+            weeklyLeagueLoading={weeklyLeagueLoading}
             weeklyScore={weeklyScore}
           />
         ) : (
@@ -3694,6 +3789,7 @@ function HomeScreen({
   onOpenWeekly,
   onResetChallengeRoom,
   onRetryChallengeHistory,
+  onRetryWeeklyLeague,
   onStartChallengeRace,
   onStartDaily,
   onStartPractice,
@@ -3707,6 +3803,9 @@ function HomeScreen({
   unreadNotificationCount,
   weekKey,
   weeklyDone,
+  weeklyLeagueError,
+  weeklyLeagueLeaderboard,
+  weeklyLeagueLoading,
   weeklyScore,
 }) {
   const trainingLevels = PLAYABLE_DIFFICULTIES;
@@ -3814,6 +3913,18 @@ function HomeScreen({
             <MiniStat icon={league.icon} label={strings.status.league} value={strings.leagues[league.id]} />
           </View>
         </View>
+        <LeagueLeaderboard
+          accountReady={Boolean(session?.user?.id)}
+          error={weeklyLeagueError}
+          league={league}
+          loading={weeklyLeagueLoading}
+          onOpenAccount={onOpenAccount}
+          onRetry={onRetryWeeklyLeague}
+          profileReady={Boolean(profile?.username)}
+          rows={weeklyLeagueLeaderboard}
+          strings={strings}
+          weekKey={weekKey}
+        />
       </ScrollView>
     );
   }
