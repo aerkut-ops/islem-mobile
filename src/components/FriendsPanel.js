@@ -12,7 +12,9 @@ import {
   View,
 } from 'react-native';
 import {
+  blockPlayer,
   cancelFriendRequest,
+  loadBlockedPlayers,
   loadFriendActivity,
   loadFriendConnections,
   loadFriendProfile,
@@ -20,6 +22,7 @@ import {
   respondFriendRequest,
   searchPlayers,
   sendFriendRequest,
+  unblockPlayer,
 } from '../services/friendService';
 import {
   cancelChallengeInvite,
@@ -69,6 +72,8 @@ export default function FriendsPanel({
   const [friendProfileError, setFriendProfileError] = useState('');
   const [challengeInvites, setChallengeInvites] = useState(EMPTY_CHALLENGES);
   const [challengesLoading, setChallengesLoading] = useState(false);
+  const [blockedPlayers, setBlockedPlayers] = useState([]);
+  const [blockedPlayersLoading, setBlockedPlayersLoading] = useState(false);
   const friendProfileRequestRef = useRef(0);
 
   const canLoadFriends = Boolean(
@@ -124,6 +129,21 @@ export default function FriendsPanel({
     }
   }, [canLoadFriends, strings.challengeLoadError]);
 
+  const refreshBlockedPlayers = useCallback(async () => {
+    if (!canLoadFriends) {
+      return;
+    }
+
+    setBlockedPlayersLoading(true);
+    try {
+      setBlockedPlayers(await loadBlockedPlayers());
+    } catch {
+      setErrorMessage(strings.blockedLoadError);
+    } finally {
+      setBlockedPlayersLoading(false);
+    }
+  }, [canLoadFriends, strings.blockedLoadError]);
+
   useEffect(() => {
     if (!visible) {
       friendProfileRequestRef.current += 1;
@@ -144,6 +164,8 @@ export default function FriendsPanel({
       setFriendProfileError('');
       setChallengeInvites(EMPTY_CHALLENGES);
       setChallengesLoading(false);
+      setBlockedPlayers([]);
+      setBlockedPlayersLoading(false);
       return;
     }
 
@@ -151,10 +173,12 @@ export default function FriendsPanel({
       refreshConnections();
       refreshActivity();
       refreshChallenges();
+      refreshBlockedPlayers();
     }
   }, [
     canLoadFriends,
     refreshActivity,
+    refreshBlockedPlayers,
     refreshChallenges,
     refreshConnections,
     visible,
@@ -184,14 +208,21 @@ export default function FriendsPanel({
 
   const refreshAfterAction = async () => {
     const query = searchText.trim();
-    const [nextConnections, nextChallenges, nextSearchResults] =
+    const [
+      nextConnections,
+      nextChallenges,
+      nextBlockedPlayers,
+      nextSearchResults,
+    ] =
       await Promise.all([
         loadFriendConnections(),
         loadChallengeInvites(),
+        loadBlockedPlayers(),
         query.length >= 2 ? searchPlayers(query) : Promise.resolve(null),
       ]);
     setConnections(nextConnections);
     setChallengeInvites(nextChallenges);
+    setBlockedPlayers(nextBlockedPlayers);
     onIncomingCountChange?.(nextConnections.incoming.length);
     if (nextSearchResults) {
       setSearchResults(nextSearchResults);
@@ -234,10 +265,12 @@ export default function FriendsPanel({
     setActionKey(key);
     setErrorMessage('');
     try {
-      await action();
+      const result = await action();
       await refreshAfterAction();
+      return result;
     } catch {
       setErrorMessage(strings.actionError);
+      return null;
     } finally {
       setActionKey('');
     }
@@ -312,6 +345,26 @@ export default function FriendsPanel({
         },
       ],
     );
+  };
+
+  const confirmBlock = (player) => {
+    const name = player.display_name || `@${player.username}`;
+    Alert.alert(strings.blockTitle, strings.blockMessage(name), [
+      { style: 'cancel', text: strings.cancel },
+      {
+        onPress: async () => {
+          const result = await runAction(
+            `block-${player.player_id}`,
+            () => blockPlayer(player.player_id),
+          );
+          if (result === 'blocked') {
+            closeFriendProfile();
+          }
+        },
+        style: 'destructive',
+        text: strings.block,
+      },
+    ]);
   };
 
   if (!visible) {
@@ -589,6 +642,36 @@ export default function FriendsPanel({
               onRetry={refreshActivity}
               strings={strings}
             />
+
+            {blockedPlayersLoading ? (
+              <View style={styles.inlineLoading}>
+                <ActivityIndicator color="#1fa7a0" size="small" />
+                <Text style={styles.helperText}>
+                  {strings.blockedLoading}
+                </Text>
+              </View>
+            ) : (
+              <FriendSection
+                emptyText={strings.emptyBlocked}
+                rows={blockedPlayers}
+                strings={strings}
+                title={strings.blockedTitle}
+              >
+                {(player) => (
+                  <SmallAction
+                    busy={actionKey === `unblock-${player.player_id}`}
+                    disabled={Boolean(actionKey)}
+                    label={strings.unblock}
+                    onPress={() =>
+                      runAction(`unblock-${player.player_id}`, () =>
+                        unblockPlayer(player.player_id),
+                      )
+                    }
+                    secondary
+                  />
+                )}
+              </FriendSection>
+            )}
           </>
         )}
       </ScrollView>
@@ -640,6 +723,7 @@ export default function FriendsPanel({
           onClose={closeFriendProfile}
           onDeclineChallenge={declineChallenge}
           onRetry={() => openFriendProfile(selectedFriend)}
+          onBlock={() => confirmBlock(selectedFriend)}
           onSendChallenge={(player) =>
             runChallengeAction(
               `challenge-send-${player.player_id}`,
@@ -762,6 +846,7 @@ function FriendProfileCard({
   incomingChallenge,
   loading,
   onAcceptChallenge,
+  onBlock,
   onClose,
   onDeclineChallenge,
   onRetry,
@@ -894,6 +979,15 @@ function FriendProfileCard({
                 )}
               </Pressable>
             )}
+            <View style={styles.profileSafetyActions}>
+              <SmallAction
+                busy={actionKey === `block-${player.player_id}`}
+                danger
+                disabled={Boolean(actionKey)}
+                label={strings.block}
+                onPress={onBlock}
+              />
+            </View>
           </>
         )}
       </View>
@@ -1063,6 +1157,7 @@ function SearchActions({
 
 function SmallAction({
   busy = false,
+  danger = false,
   disabled = false,
   label,
   onPress,
@@ -1076,13 +1171,14 @@ function SmallAction({
       style={({ pressed }) => [
         styles.smallAction,
         secondary && styles.smallActionSecondary,
+        danger && styles.smallActionDanger,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
       {busy ? (
         <ActivityIndicator
-          color={secondary ? '#147b76' : '#ffffff'}
+          color={secondary || danger ? '#147b76' : '#ffffff'}
           size="small"
         />
       ) : (
@@ -1090,6 +1186,7 @@ function SmallAction({
           style={[
             styles.smallActionText,
             secondary && styles.smallActionSecondaryText,
+            danger && styles.smallActionDangerText,
           ]}
         >
           {label}
@@ -1352,6 +1449,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     marginTop: 12,
   },
+  profileSafetyActions: {
+    alignItems: 'flex-end',
+    marginTop: 10,
+  },
   profileChallengeButton: {
     alignItems: 'center',
     backgroundColor: '#1fa7a0',
@@ -1477,6 +1578,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderColor: '#cbd8de',
   },
+  smallActionDanger: {
+    backgroundColor: '#fff4f2',
+    borderColor: '#e9b9b2',
+    borderWidth: StyleSheet.hairlineWidth,
+  },
   smallActionText: {
     color: '#ffffff',
     fontSize: 11,
@@ -1484,6 +1590,9 @@ const styles = StyleSheet.create({
   },
   smallActionSecondaryText: {
     color: '#147b76',
+  },
+  smallActionDangerText: {
+    color: '#b34b3f',
   },
   sentText: {
     color: '#68737d',

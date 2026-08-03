@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   groupFriendConnections,
+  normalizeBlockedPlayers,
   normalizeFriendActivity,
   normalizeFriendActivityLimit,
   normalizeFriendProfile,
@@ -9,6 +10,40 @@ import {
   normalizePlayerSearch,
   validatePlayerSearch,
 } from '../src/services/friendValidation.mjs';
+
+test('normalizeBlockedPlayers keeps safe valid rows newest first', () => {
+  assert.deepEqual(
+    normalizeBlockedPlayers([
+      {
+        blocked_at: '2026-08-01T09:00:00.000Z',
+        display_name: 'First',
+        player_id: 'first-id',
+        username: 'first_player',
+      },
+      { blocked_at: 'invalid', player_id: 'invalid-id', username: 'invalid' },
+      {
+        blocked_at: '2026-08-02T09:00:00.000Z',
+        display_name: null,
+        player_id: 'second-id',
+        username: 'second_player',
+      },
+    ]),
+    [
+      {
+        blocked_at: '2026-08-02T09:00:00.000Z',
+        display_name: null,
+        player_id: 'second-id',
+        username: 'second_player',
+      },
+      {
+        blocked_at: '2026-08-01T09:00:00.000Z',
+        display_name: 'First',
+        player_id: 'first-id',
+        username: 'first_player',
+      },
+    ],
+  );
+});
 
 test('player search is trimmed, lowercased, and accepts an at sign', () => {
   assert.equal(normalizePlayerSearch('  @Islem_Player  '), 'islem_player');

@@ -80,6 +80,34 @@ export function normalizeIncomingFriendRequestCount(value) {
   return normalizeNonNegativeInteger(value);
 }
 
+export function normalizeBlockedPlayers(rows) {
+  const blockedPlayers = [];
+
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const blockedAt = new Date(row?.blocked_at);
+    if (
+      !row?.player_id ||
+      !row?.username ||
+      Number.isNaN(blockedAt.getTime())
+    ) {
+      continue;
+    }
+
+    blockedPlayers.push({
+      player_id: row.player_id,
+      username: String(row.username),
+      display_name: row.display_name ? String(row.display_name) : null,
+      blocked_at: blockedAt.toISOString(),
+    });
+  }
+
+  return blockedPlayers.sort(
+    (left, right) =>
+      new Date(right.blocked_at).getTime() -
+      new Date(left.blocked_at).getTime(),
+  );
+}
+
 export function normalizeFriendActivityLimit(value) {
   const limit = normalizeNonNegativeInteger(value);
   return Math.min(Math.max(limit || 12, 1), 20);

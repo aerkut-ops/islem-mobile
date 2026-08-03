@@ -3,6 +3,7 @@ import {
   normalizeFriendActivity,
   normalizeFriendActivityLimit,
   normalizeFriendProfile,
+  normalizeBlockedPlayers,
   normalizeIncomingFriendRequestCount,
   validatePlayerSearch,
 } from './friendValidation.mjs';
@@ -17,6 +18,17 @@ export async function loadFriendConnections() {
   }
 
   return groupFriendConnections(data);
+}
+
+export async function loadBlockedPlayers() {
+  requireFriendService();
+
+  const { data, error } = await supabase.rpc('list_blocked_players');
+  if (error) {
+    throw error;
+  }
+
+  return normalizeBlockedPlayers(data);
 }
 
 export async function loadFriendActivity(limit = 12) {
@@ -103,6 +115,18 @@ export async function cancelFriendRequest(requestId) {
 export async function removeFriend(playerId) {
   return runFriendAction('remove_friend', {
     p_friend_user_id: playerId,
+  });
+}
+
+export async function blockPlayer(playerId) {
+  return runFriendAction('block_player', {
+    p_target_user_id: playerId,
+  });
+}
+
+export async function unblockPlayer(playerId) {
+  return runFriendAction('unblock_player', {
+    p_target_user_id: playerId,
   });
 }
 

@@ -156,6 +156,39 @@ async function listConnections(context, session) {
   return rows;
 }
 
+async function listBlockedPlayers(context, session) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_blocked_players',
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Blocked players returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function assertRpcRejected({
+  context,
+  functionName,
+  parameters,
+  session,
+}) {
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
+    {
+      method: 'POST',
+      headers: authHeaders(context.publishableKey, session),
+      body: JSON.stringify(parameters),
+    },
+  );
+  if (![400, 401, 403].includes(response.status)) {
+    throw new Error(
+      `${session.label} ${functionName} was not rejected as expected.`,
+    );
+  }
+}
+
 async function listWeeklyLeaderboard(context, session, weekKey) {
   const rows = await rpc({
     ...context,
@@ -390,6 +423,7 @@ async function assertDirectTablesDenied(context, session) {
     'push_deliveries',
     'push_devices',
     'user_notifications',
+    'user_blocks',
   ]) {
     const response = await fetch(
       `${context.supabaseUrl}/rest/v1/${table}?select=*`,
@@ -405,6 +439,7 @@ async function assertDirectTablesDenied(context, session) {
 
 async function assertAnonymousRpcDenied(context) {
   for (const functionName of [
+    'block_player',
     'claim_pending_push_notifications',
     'dismiss_notification',
     'get_friend_profile',
@@ -413,15 +448,18 @@ async function assertAnonymousRpcDenied(context) {
     'list_friend_activity',
     'list_friend_connections',
     'list_friend_weekly_leaderboard',
+    'list_blocked_players',
     'list_weekly_league_leaderboard',
     'list_user_notifications',
     'mark_notifications_read',
     'register_push_device',
     'unregister_push_device',
+    'unblock_player',
     'is_push_device_registered',
     'verify_push_worker_secret',
   ]) {
     const parameters = {
+      block_player: { p_target_user_id: null },
       claim_pending_push_notifications: { p_limit: 1 },
       dismiss_notification: { p_notification_id: null },
       get_friend_profile: { p_player_id: null },
@@ -435,6 +473,7 @@ async function assertAnonymousRpcDenied(context) {
         p_project_id: EXPO_PROJECT_ID,
       },
       unregister_push_device: { p_expo_push_token: null },
+      unblock_player: { p_target_user_id: null },
       verify_push_worker_secret: { p_secret: null },
     }[functionName] || {};
     const response = await fetch(
@@ -451,6 +490,228 @@ async function assertAnonymousRpcDenied(context) {
     if (![401, 403].includes(response.status)) {
       throw new Error(`Anonymous ${functionName} access was not denied.`);
     }
+  }
+}
+
+async function verifyPlayerBlocking(context, development, appReview, weekKey) {
+  const safeBlockedKeys = new Set([
+    'blocked_at',
+    'display_name',
+    'player_id',
+    'username',
+  ]);
+
+  await rpc({
+    ...context,
+    session: development,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: appReview.userId },
+  });
+  await rpc({
+    ...context,
+    session: appReview,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: development.userId },
+  });
+  await cleanTestRelationship(context, development, appReview);
+
+  try {
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const incoming = (await listConnections(context, appReview)).find(
+      (row) =>
+        row.player_id === development.userId &&
+        row.connection_type === 'incoming',
+    );
+    if (!incoming?.request_id) {
+      throw new Error('Blocking test friend request is missing.');
+    }
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_friend_request',
+      parameters: { p_accept: true, p_request_id: incoming.request_id },
+    });
+
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_challenge_invite',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const challengeInvites = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'list_challenge_invites',
+    });
+    const challengeInvite = challengeInvites.find(
+      (row) => row.player_id === development.userId,
+    );
+    if (!challengeInvite?.invite_id) {
+      throw new Error('Blocking test challenge invite is missing.');
+    }
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_challenge_invite',
+      parameters: { p_accept: true, p_invite_id: challengeInvite.invite_id },
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await rpc({
+        ...context,
+        session: development,
+        functionName: 'block_player',
+        parameters: { p_target_user_id: appReview.userId },
+      });
+      if (result !== 'blocked') {
+        throw new Error('Player blocking is not idempotent.');
+      }
+    }
+
+    const blockedRows = await listBlockedPlayers(context, development);
+    const blockedPlayer = blockedRows.find(
+      (row) => row.player_id === appReview.userId,
+    );
+    if (
+      !blockedPlayer ||
+      blockedPlayer.username !== appReview.username ||
+      Object.keys(blockedPlayer).some((key) => !safeBlockedKeys.has(key))
+    ) {
+      throw new Error('The blocker cannot read a safe private block list.');
+    }
+    if (
+      (await listBlockedPlayers(context, appReview)).some(
+        (row) => row.player_id === development.userId,
+      )
+    ) {
+      throw new Error('A blocked player can discover who blocked them.');
+    }
+
+    const crossAccountUnblock = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: development.userId },
+    });
+    if (crossAccountUnblock !== 'not_blocked') {
+      throw new Error('A blocked player changed another account block row.');
+    }
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      if (
+        (await listConnections(context, session)).some(
+          (row) => row.player_id === other.userId,
+        )
+      ) {
+        throw new Error(`${session.label} still sees a blocked relationship.`);
+      }
+
+      const searchRows = await rpc({
+        ...context,
+        session,
+        functionName: 'search_players',
+        parameters: { p_limit: 20, p_query: other.username },
+      });
+      if (searchRows.some((row) => row.player_id === other.userId)) {
+        throw new Error(`${session.label} can find a blocked player in search.`);
+      }
+
+      const invites = await rpc({
+        ...context,
+        session,
+        functionName: 'list_challenge_invites',
+      });
+      const rooms = await rpc({
+        ...context,
+        session,
+        functionName: 'list_active_challenge_rooms',
+      });
+      const history = await rpc({
+        ...context,
+        session,
+        functionName: 'list_challenge_history',
+        parameters: { p_limit: 50 },
+      });
+      const league = await listWeeklyLeagueLeaderboard(
+        context,
+        session,
+        weekKey,
+      );
+      if (
+        invites.some((row) => row.player_id === other.userId) ||
+        rooms.some((row) => row.opponent_id === other.userId) ||
+        history.some((row) => row.opponent_id === other.userId) ||
+        league.some((row) => row.player_id === other.userId)
+      ) {
+        throw new Error(`${session.label} still sees blocked social data.`);
+      }
+
+      await assertRpcRejected({
+        context,
+        functionName: 'send_friend_request',
+        parameters: { p_target_user_id: other.userId },
+        session,
+      });
+    }
+    console.log('PASS  Player blocks hide both sides and stop new interaction.');
+
+    const unblockResult = await rpc({
+      ...context,
+      session: development,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    if (unblockResult !== 'unblocked') {
+      throw new Error('The blocker could not remove their own block.');
+    }
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const searchRows = await rpc({
+        ...context,
+        session,
+        functionName: 'search_players',
+        parameters: { p_limit: 20, p_query: other.username },
+      });
+      if (!searchRows.some((row) => row.player_id === other.userId)) {
+        throw new Error(`${session.label} cannot find an unblocked player.`);
+      }
+    }
+
+    const sendAfterUnblock = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: development.userId },
+    });
+    if (sendAfterUnblock !== 'sent') {
+      throw new Error('Interaction did not recover after unblocking.');
+    }
+    console.log('PASS  Only the blocker can unblock and interaction recovers.');
+  } finally {
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: development.userId },
+    });
+    await cleanTestRelationship(context, development, appReview);
   }
 }
 
@@ -507,6 +768,18 @@ async function main() {
   }
   console.log('PASS  Push tokens cannot be hijacked between active accounts.');
 
+  await rpc({
+    ...context,
+    session: development,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: appReview.userId },
+  });
+  await rpc({
+    ...context,
+    session: appReview,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: development.userId },
+  });
   await cleanTestRelationship(context, development, appReview);
   const testEntityIds = new Set();
 
@@ -1007,6 +1280,8 @@ async function main() {
   if (finalLeaderboard.some((row) => row.player_id === appReview.userId)) {
     throw new Error('Removed friend is still visible in the weekly leaderboard.');
   }
+
+  await verifyPlayerBlocking(context, development, appReview, weekKey);
 
   console.log('PASS  Friend security check completed and cleaned up test data.');
 }
