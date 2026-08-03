@@ -6,10 +6,23 @@ import {
   normalizeFriendActivity,
   normalizeFriendActivityLimit,
   normalizeFriendProfile,
+  normalizePlayerReportReason,
   normalizeIncomingFriendRequestCount,
   normalizePlayerSearch,
   validatePlayerSearch,
 } from '../src/services/friendValidation.mjs';
+
+test('player reports accept only supported fixed reasons', () => {
+  assert.equal(
+    normalizePlayerReportReason('  INAPPROPRIATE_PROFILE  '),
+    'inappropriate_profile',
+  );
+  assert.equal(normalizePlayerReportReason('harassment'), 'harassment');
+  assert.equal(normalizePlayerReportReason('spam_cheating'), 'spam_cheating');
+  assert.equal(normalizePlayerReportReason('other'), 'other');
+  assert.equal(normalizePlayerReportReason('custom reason'), null);
+  assert.equal(normalizePlayerReportReason(null), null);
+});
 
 test('normalizeBlockedPlayers keeps safe valid rows newest first', () => {
   assert.deepEqual(

@@ -5,6 +5,7 @@ import {
   normalizeFriendProfile,
   normalizeBlockedPlayers,
   normalizeIncomingFriendRequestCount,
+  normalizePlayerReportReason,
   validatePlayerSearch,
 } from './friendValidation.mjs';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
@@ -126,6 +127,18 @@ export async function blockPlayer(playerId) {
 
 export async function unblockPlayer(playerId) {
   return runFriendAction('unblock_player', {
+    p_target_user_id: playerId,
+  });
+}
+
+export async function reportPlayer(playerId, reason) {
+  const normalizedReason = normalizePlayerReportReason(reason);
+  if (!normalizedReason) {
+    throw makeFriendError('invalid_report_reason');
+  }
+
+  return runFriendAction('report_player', {
+    p_reason: normalizedReason,
     p_target_user_id: playerId,
   });
 }

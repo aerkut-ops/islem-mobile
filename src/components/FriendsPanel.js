@@ -19,11 +19,13 @@ import {
   loadFriendConnections,
   loadFriendProfile,
   removeFriend,
+  reportPlayer,
   respondFriendRequest,
   searchPlayers,
   sendFriendRequest,
   unblockPlayer,
 } from '../services/friendService';
+import { PLAYER_REPORT_REASONS } from '../services/friendValidation.mjs';
 import {
   cancelChallengeInvite,
   loadActiveChallengeRoom,
@@ -74,6 +76,7 @@ export default function FriendsPanel({
   const [challengesLoading, setChallengesLoading] = useState(false);
   const [blockedPlayers, setBlockedPlayers] = useState([]);
   const [blockedPlayersLoading, setBlockedPlayersLoading] = useState(false);
+  const [reportingPlayer, setReportingPlayer] = useState(null);
   const friendProfileRequestRef = useRef(0);
 
   const canLoadFriends = Boolean(
@@ -166,6 +169,7 @@ export default function FriendsPanel({
       setChallengesLoading(false);
       setBlockedPlayers([]);
       setBlockedPlayersLoading(false);
+      setReportingPlayer(null);
       return;
     }
 
@@ -259,6 +263,7 @@ export default function FriendsPanel({
     setFriendProfile(null);
     setFriendProfileLoading(false);
     setFriendProfileError('');
+    setReportingPlayer(null);
   };
 
   const runAction = async (key, action) => {
@@ -365,6 +370,31 @@ export default function FriendsPanel({
         text: strings.block,
       },
     ]);
+  };
+
+  const submitPlayerReport = async (player, reason) => {
+    const key = `report-${player.player_id}-${reason}`;
+    setActionKey(key);
+    try {
+      const result = await reportPlayer(player.player_id, reason);
+      setReportingPlayer(null);
+      Alert.alert(
+        strings.reportReceivedTitle,
+        result === 'already_reported'
+          ? strings.reportAlreadyReceived
+          : strings.reportReceived,
+      );
+    } catch (error) {
+      const rateLimited = String(error?.message || '').includes(
+        'report_rate_limited',
+      );
+      Alert.alert(
+        strings.reportErrorTitle,
+        rateLimited ? strings.reportRateLimited : strings.reportError,
+      );
+    } finally {
+      setActionKey('');
+    }
   };
 
   if (!visible) {
@@ -482,6 +512,7 @@ export default function FriendsPanel({
                   )
                 }
                 onRemove={() => confirmRemove(player)}
+                onReport={() => setReportingPlayer(player)}
                 player={player}
                 strings={strings}
               />
@@ -504,6 +535,12 @@ export default function FriendsPanel({
             >
               {(player) => (
                 <View style={styles.actions}>
+                  <SmallAction
+                    disabled={Boolean(actionKey)}
+                    label={strings.report}
+                    onPress={() => setReportingPlayer(player)}
+                    secondary
+                  />
                   <SmallAction
                     busy={actionKey === `decline-${player.request_id}`}
                     disabled={Boolean(actionKey)}
@@ -619,17 +656,25 @@ export default function FriendsPanel({
                 title={strings.outgoing}
               >
                 {(player) => (
-                  <SmallAction
-                    busy={actionKey === `cancel-${player.request_id}`}
-                    disabled={Boolean(actionKey)}
-                    label={strings.cancel}
-                    onPress={() =>
-                      runAction(`cancel-${player.request_id}`, () =>
-                        cancelFriendRequest(player.request_id),
-                      )
-                    }
-                    secondary
-                  />
+                  <View style={styles.actions}>
+                    <SmallAction
+                      disabled={Boolean(actionKey)}
+                      label={strings.report}
+                      onPress={() => setReportingPlayer(player)}
+                      secondary
+                    />
+                    <SmallAction
+                      busy={actionKey === `cancel-${player.request_id}`}
+                      disabled={Boolean(actionKey)}
+                      label={strings.cancel}
+                      onPress={() =>
+                        runAction(`cancel-${player.request_id}`, () =>
+                          cancelFriendRequest(player.request_id),
+                        )
+                      }
+                      secondary
+                    />
+                  </View>
                 )}
               </FriendSection>
             ) : null}
@@ -724,6 +769,7 @@ export default function FriendsPanel({
           onDeclineChallenge={declineChallenge}
           onRetry={() => openFriendProfile(selectedFriend)}
           onBlock={() => confirmBlock(selectedFriend)}
+          onReport={() => setReportingPlayer(selectedFriend)}
           onSendChallenge={(player) =>
             runChallengeAction(
               `challenge-send-${player.player_id}`,
@@ -736,6 +782,17 @@ export default function FriendsPanel({
           )}
           player={friendProfile || selectedFriend}
           actionKey={actionKey}
+          strings={strings}
+        />
+      ) : null}
+      {reportingPlayer ? (
+        <ReportPlayerCard
+          actionKey={actionKey}
+          onClose={() => setReportingPlayer(null)}
+          onSelectReason={(reason) =>
+            submitPlayerReport(reportingPlayer, reason)
+          }
+          player={reportingPlayer}
           strings={strings}
         />
       ) : null}
@@ -850,6 +907,7 @@ function FriendProfileCard({
   onClose,
   onDeclineChallenge,
   onRetry,
+  onReport,
   onSendChallenge,
   outgoingChallenge,
   player,
@@ -981,6 +1039,12 @@ function FriendProfileCard({
             )}
             <View style={styles.profileSafetyActions}>
               <SmallAction
+                disabled={Boolean(actionKey)}
+                label={strings.report}
+                onPress={onReport}
+                secondary
+              />
+              <SmallAction
                 busy={actionKey === `block-${player.player_id}`}
                 danger
                 disabled={Boolean(actionKey)}
@@ -990,6 +1054,79 @@ function FriendProfileCard({
             </View>
           </>
         )}
+      </View>
+    </View>
+  );
+}
+
+function ReportPlayerCard({
+  actionKey,
+  onClose,
+  onSelectReason,
+  player,
+  strings,
+}) {
+  const displayName = player.display_name || `@${player.username}`;
+  const busy = actionKey.startsWith(`report-${player.player_id}-`);
+
+  return (
+    <View style={[styles.profileOverlay, styles.reportOverlay]}>
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy}
+        onPress={onClose}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.reportCard}>
+        <View style={styles.header}>
+          <View style={styles.reportHeaderCopy}>
+            <Text style={styles.eyebrow}>{strings.reportEyebrow}</Text>
+            <Text style={styles.title}>{strings.reportTitle}</Text>
+          </View>
+          <Pressable
+            accessibilityLabel={strings.closeReport}
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.closeButton,
+              busy && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text style={styles.closeText}>×</Text>
+          </Pressable>
+        </View>
+        <Text style={styles.reportPlayerName}>{displayName}</Text>
+        <Text style={styles.reportPrompt}>{strings.reportPrompt}</Text>
+        <View style={styles.reportReasons}>
+          {PLAYER_REPORT_REASONS.map((reason) => {
+            const key = `report-${player.player_id}-${reason}`;
+            return (
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy}
+                key={reason}
+                onPress={() => onSelectReason(reason)}
+                style={({ pressed }) => [
+                  styles.reportReason,
+                  busy && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.reportReasonText}>
+                  {strings.reportReasons[reason]}
+                </Text>
+                {actionKey === key ? (
+                  <ActivityIndicator color="#147b76" size="small" />
+                ) : (
+                  <Text style={styles.reportReasonArrow}>›</Text>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+        <Text style={styles.reportPrivacy}>{strings.reportPrivacy}</Text>
       </View>
     </View>
   );
@@ -1109,23 +1246,38 @@ function SearchActions({
   onAdd,
   onDecline,
   onRemove,
+  onReport,
   player,
   strings,
 }) {
   if (player.connection_type === 'friend') {
     return (
-      <SmallAction
-        busy={actionKey === `remove-${player.player_id}`}
-        disabled={Boolean(actionKey)}
-        label={strings.remove}
-        onPress={onRemove}
-        secondary
-      />
+      <View style={styles.actions}>
+        <SmallAction
+          disabled={Boolean(actionKey)}
+          label={strings.report}
+          onPress={onReport}
+          secondary
+        />
+        <SmallAction
+          busy={actionKey === `remove-${player.player_id}`}
+          disabled={Boolean(actionKey)}
+          label={strings.remove}
+          onPress={onRemove}
+          secondary
+        />
+      </View>
     );
   }
   if (player.connection_type === 'incoming') {
     return (
       <View style={styles.actions}>
+        <SmallAction
+          disabled={Boolean(actionKey)}
+          label={strings.report}
+          onPress={onReport}
+          secondary
+        />
         <SmallAction
           busy={actionKey === `decline-${player.request_id}`}
           disabled={Boolean(actionKey)}
@@ -1143,15 +1295,33 @@ function SearchActions({
     );
   }
   if (player.connection_type === 'outgoing') {
-    return <Text style={styles.sentText}>{strings.sent}</Text>;
+    return (
+      <View style={styles.actions}>
+        <Text style={styles.sentText}>{strings.sent}</Text>
+        <SmallAction
+          disabled={Boolean(actionKey)}
+          label={strings.report}
+          onPress={onReport}
+          secondary
+        />
+      </View>
+    );
   }
   return (
-    <SmallAction
-      busy={actionKey === `add-${player.player_id}`}
-      disabled={Boolean(actionKey)}
-      label={strings.add}
-      onPress={onAdd}
-    />
+    <View style={styles.actions}>
+      <SmallAction
+        disabled={Boolean(actionKey)}
+        label={strings.report}
+        onPress={onReport}
+        secondary
+      />
+      <SmallAction
+        busy={actionKey === `add-${player.player_id}`}
+        disabled={Boolean(actionKey)}
+        label={strings.add}
+        onPress={onAdd}
+      />
+    </View>
   );
 }
 
@@ -1450,8 +1620,74 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   profileSafetyActions: {
-    alignItems: 'flex-end',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
     marginTop: 10,
+  },
+  reportOverlay: {
+    zIndex: 4,
+  },
+  reportCard: {
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    maxWidth: 420,
+    padding: 16,
+    width: '100%',
+  },
+  reportHeaderCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  reportPlayerName: {
+    color: '#20242a',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  reportPrompt: {
+    color: '#68737d',
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  reportReasons: {
+    gap: 7,
+    marginTop: 14,
+  },
+  reportReason: {
+    alignItems: 'center',
+    backgroundColor: '#f7f8fb',
+    borderColor: '#d8e2e8',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  reportReasonText: {
+    color: '#20242a',
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  reportReasonArrow: {
+    color: '#147b76',
+    fontSize: 24,
+    fontWeight: '700',
+    lineHeight: 26,
+  },
+  reportPrivacy: {
+    color: '#7d8790',
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 15,
+    marginTop: 12,
   },
   profileChallengeButton: {
     alignItems: 'center',
@@ -1560,8 +1796,12 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   actions: {
+    alignItems: 'center',
     flexDirection: 'row',
+    flexShrink: 1,
+    flexWrap: 'wrap',
     gap: 5,
+    justifyContent: 'flex-end',
   },
   smallAction: {
     alignItems: 'center',

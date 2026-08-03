@@ -1,5 +1,11 @@
 export const PLAYER_SEARCH_MIN_LENGTH = 2;
 export const PLAYER_SEARCH_MAX_LENGTH = 40;
+export const PLAYER_REPORT_REASONS = Object.freeze([
+  'inappropriate_profile',
+  'harassment',
+  'spam_cheating',
+  'other',
+]);
 
 const CONNECTION_TYPES = new Set(['friend', 'incoming', 'outgoing']);
 const ACTIVITY_MODES = new Set(['normal', 'daily', 'weekly']);
@@ -28,6 +34,11 @@ export function validatePlayerSearch(value) {
     return { error: 'invalid_search', query };
   }
   return { error: null, query };
+}
+
+export function normalizePlayerReportReason(value) {
+  const reason = String(value || '').trim().toLowerCase();
+  return PLAYER_REPORT_REASONS.includes(reason) ? reason : null;
 }
 
 export function groupFriendConnections(rows) {

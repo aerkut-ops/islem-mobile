@@ -422,6 +422,7 @@ async function assertDirectTablesDenied(context, session) {
     'friendships',
     'push_deliveries',
     'push_devices',
+    'player_reports',
     'user_notifications',
     'user_blocks',
   ]) {
@@ -453,6 +454,7 @@ async function assertAnonymousRpcDenied(context) {
     'list_user_notifications',
     'mark_notifications_read',
     'register_push_device',
+    'report_player',
     'unregister_push_device',
     'unblock_player',
     'is_push_device_registered',
@@ -472,6 +474,7 @@ async function assertAnonymousRpcDenied(context) {
         p_platform: 'ios',
         p_project_id: EXPO_PROJECT_ID,
       },
+      report_player: { p_reason: 'other', p_target_user_id: null },
       unregister_push_device: { p_expo_push_token: null },
       unblock_player: { p_target_user_id: null },
       verify_push_worker_secret: { p_secret: null },
@@ -491,6 +494,55 @@ async function assertAnonymousRpcDenied(context) {
       throw new Error(`Anonymous ${functionName} access was not denied.`);
     }
   }
+}
+
+async function verifyPlayerReporting(context, development, appReview) {
+  await assertRpcRejected({
+    context,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: development.userId,
+    },
+    session: development,
+  });
+  await assertRpcRejected({
+    context,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'unsupported_reason',
+      p_target_user_id: appReview.userId,
+    },
+    session: development,
+  });
+
+  const firstResult = await rpc({
+    ...context,
+    session: development,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: appReview.userId,
+    },
+  });
+  if (!['reported', 'already_reported'].includes(firstResult)) {
+    throw new Error(`Player report returned ${String(firstResult)}.`);
+  }
+
+  const duplicateResult = await rpc({
+    ...context,
+    session: development,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: appReview.userId,
+    },
+  });
+  if (duplicateResult !== 'already_reported') {
+    throw new Error('Duplicate player report was not handled safely.');
+  }
+
+  console.log('PASS  Player reports validate targets and remain idempotent.');
 }
 
 async function verifyPlayerBlocking(context, development, appReview, weekKey) {
@@ -1281,6 +1333,7 @@ async function main() {
     throw new Error('Removed friend is still visible in the weekly leaderboard.');
   }
 
+  await verifyPlayerReporting(context, development, appReview);
   await verifyPlayerBlocking(context, development, appReview, weekKey);
 
   console.log('PASS  Friend security check completed and cleaned up test data.');

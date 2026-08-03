@@ -85,7 +85,7 @@ Not: App Store Connect'te Privacy Policy URL zorunludur. `store-web/privacy.html
 
 ## v1.1 Gizlilik Beyanı
 
-v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Kullanıcı uzaktan bildirimleri açarsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve teslim durumu işlenir. Giriş sırasında bot ve otomatik kötüye kullanım koruması için Cloudflare Turnstile ağ ve cihaz/tarayıcı sinyallerini işleyebilir. Veriler hesap girişi, güvenlik, skor/seri senkronizasyonu, arkadaş bildirimleri ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve geliştirici tarafından uygulamalar arası kullanıcı takibi yapılmaz.
+v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Oyuncu güvenliği bildirimlerinde bildiren ve bildirilen hesap kimlikleri, sabit neden ve profil adı kopyası moderasyon için tutulur. Kullanıcı uzaktan bildirimleri açarsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve teslim durumu işlenir. Giriş sırasında bot ve otomatik kötüye kullanım koruması için Cloudflare Turnstile ağ ve cihaz/tarayıcı sinyallerini işleyebilir. Veriler hesap girişi, güvenlik, moderasyon, skor/seri senkronizasyonu, arkadaş bildirimleri ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve geliştirici tarafından uygulamalar arası kullanıcı takibi yapılmaz.
 
 v1.1 gönderilmeden önce App Store Connect > App Privacy altında "Yes, we collect data" seçilmeli ve en az şu veri türleri beyan edilmelidir:
 
@@ -95,6 +95,7 @@ v1.1 gönderilmeden önce App Store Connect > App Privacy altında "Yes, we coll
   Bildirim tokenının Apple'ın güncel tanımında Device ID sayılıp sayılmadığı gönderim
   sırasında App Store Connect yardım metniyle yeniden doğrulanmalı.
 - User Content > Gameplay Content: App Functionality; kullanıcıya bağlı; tracking yok
+- User Content > Other User Content: App Functionality; oyuncu güvenliği bildirim nedeni ve profil adı kopyası; tracking yok
 
 Uygulama davranışı değişirse Product Interaction, Device ID, Diagnostics veya başka veri türlerinin gerekip gerekmediği yeniden kontrol edilmelidir. Cloudflare Turnstile üretimde etkinleştirilmeden önce Apple'ın App Privacy tanımlarıyla güvenlik amaçlı teknik veri işleme yeniden değerlendirilmelidir. Apple, kaydedilmiş oyun ve oyun mantığı için Gameplay Content beyan edilmesini ister.
 
