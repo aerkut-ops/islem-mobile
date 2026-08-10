@@ -70,7 +70,31 @@ matematik,işlem,sayı,bulmaca,zeka,çocuk,eğitim,dört işlem,hedef,puzzle
 
 ## Tanıtım Metni
 
-Sayıları sürükle, işlemi seç ve hedeflere ulaş. İşlem, her yaş için sade ve hızlı bir matematik bulmacasıdır.
+Her gün yeni bir hedefe ulaş, serini koru ve isteğe bağlı hesabınla skorlarını buluta taşı. İşlem şimdi arkadaşlar, ligler ve bildirimlerle daha zengin.
+
+## v1.1 Sürüm Notları
+
+İşlem 1.1 ile:
+
+- İsteğe bağlı hesap ve bulut senkronizasyonu eklendi.
+- Skor, seri, rozet ve istatistikler hesabınla korunabilir.
+- Profil, arkadaşlar, haftalık lig ve arkadaş yarışları eklendi.
+- Arkadaşlık ve yarış bildirimleri eklendi.
+- Oyuncu engelleme ve bildirme araçları eklendi.
+- Giriş güvenliği güçlendirildi.
+- Bildirim ayarları ve genel kararlılık iyileştirildi.
+
+Hesap oluşturmak zorunlu değildir; misafir ve internetsiz oyun devam eder.
+
+## v1.1 App Review Notu
+
+İşlem can be played without an account. An optional account unlocks cloud progress sync, profiles, friends, weekly leagues, notifications, and friend challenges.
+
+Please use the review account supplied in Sign-In Information to test account features. After signing in, open the profile/account control in the top-right area. Friend, league, notification, block, report, and account-deletion controls are available from the account and settings screens.
+
+Password and magic-link sign-in are protected by Cloudflare Turnstile. The review account is already confirmed and supports password sign-in. No purchase is required. The core math game remains available offline as a guest.
+
+The app contains no advertising, third-party analytics, or cross-app tracking.
 
 ## v1.0 Gizlilik Beyanı
 
