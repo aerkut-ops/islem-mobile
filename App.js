@@ -1590,20 +1590,23 @@ export default function App() {
   }, []);
 
   const refreshPushRegistration = useCallback(
-    async (userId) => {
+    async (userId, options = {}) => {
+      const { devicePushToken = null, silent = false } = options;
       if (!userId || activeUserIdRef.current !== userId) {
         setPushStatus('account_required');
         return;
       }
 
-      setPushStatus('loading');
+      if (!silent) {
+        setPushStatus('loading');
+      }
       try {
-        const result = await syncPushRegistration(language);
+        const result = await syncPushRegistration(language, devicePushToken);
         if (activeUserIdRef.current === userId) {
           setPushStatus(result.status);
         }
       } catch {
-        if (activeUserIdRef.current === userId) {
+        if (!silent && activeUserIdRef.current === userId) {
           setPushStatus('error');
         }
       }
@@ -2888,8 +2891,12 @@ export default function App() {
     if (!userId) {
       return undefined;
     }
-    return subscribeToPushTokenChanges(() => {
-      refreshPushRegistration(userId);
+    return subscribeToPushTokenChanges((devicePushToken) => {
+      // Refetching the native token here re-triggers this listener.
+      refreshPushRegistration(userId, {
+        devicePushToken,
+        silent: true,
+      });
     });
   }, [
     refreshPushRegistration,

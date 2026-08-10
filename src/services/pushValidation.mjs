@@ -19,6 +19,19 @@ export function normalizeExpoPushToken(value) {
   return token;
 }
 
+export function normalizeDevicePushToken(value, platform) {
+  const type = String(value?.type || '').trim().toLowerCase();
+  const data = typeof value?.data === 'string' ? value.data.trim() : '';
+  if (
+    !['ios', 'android'].includes(type) ||
+    type !== platform ||
+    !/^\S{16,4096}$/.test(data)
+  ) {
+    return null;
+  }
+  return { data, type };
+}
+
 export function isExpectedExpoProject(value) {
   return String(value || '') === EXPO_PROJECT_ID;
 }

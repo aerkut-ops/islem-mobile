@@ -3,10 +3,33 @@ import test from 'node:test';
 import {
   EXPO_PROJECT_ID,
   isExpectedExpoProject,
+  normalizeDevicePushToken,
   normalizeExpoPushToken,
   normalizePushLocale,
   normalizePushRegistrationResult,
 } from '../src/services/pushValidation.mjs';
+
+test('native push token events are bounded to the current platform', () => {
+  assert.deepEqual(
+    normalizeDevicePushToken(
+      { data: '0123456789abcdef0123456789abcdef', type: 'ios' },
+      'ios',
+    ),
+    { data: '0123456789abcdef0123456789abcdef', type: 'ios' },
+  );
+  assert.equal(
+    normalizeDevicePushToken(
+      { data: '0123456789abcdef0123456789abcdef', type: 'android' },
+      'ios',
+    ),
+    null,
+  );
+  assert.equal(
+    normalizeDevicePushToken({ data: 'short', type: 'ios' }, 'ios'),
+    null,
+  );
+  assert.equal(normalizeDevicePushToken(null, 'ios'), null);
+});
 
 test('Expo push tokens are normalized and strictly validated', () => {
   assert.equal(

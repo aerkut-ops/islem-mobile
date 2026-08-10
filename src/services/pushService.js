@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import {
   EXPO_PROJECT_ID,
   isExpectedExpoProject,
+  normalizeDevicePushToken,
   normalizeExpoPushToken,
   normalizePushLocale,
   normalizePushRegistrationResult,
@@ -68,7 +69,7 @@ export async function enablePushNotifications(locale) {
   return runPushRegistration(locale);
 }
 
-export async function syncPushRegistration(locale) {
+export async function syncPushRegistration(locale, devicePushToken = null) {
   if (!isPushPlatformSupported() || !isSupabaseConfigured || !supabase) {
     return { status: 'unavailable' };
   }
@@ -85,7 +86,7 @@ export async function syncPushRegistration(locale) {
   }
 
   await ensureAndroidChannel();
-  return runPushRegistration(locale);
+  return runPushRegistration(locale, devicePushToken);
 }
 
 export async function disablePushNotifications() {
@@ -117,7 +118,9 @@ export function subscribeToPushTokenChanges(listener) {
   if (!isPushPlatformSupported()) {
     return () => {};
   }
-  const subscription = Notifications.addPushTokenListener(() => listener());
+  const subscription = Notifications.addPushTokenListener((token) =>
+    listener(token),
+  );
   return () => subscription.remove();
 }
 
@@ -150,24 +153,36 @@ export function subscribeToNotificationEvents({
   };
 }
 
-function runPushRegistration(locale) {
+function runPushRegistration(locale, devicePushToken = null) {
   return pushRegistrationCoordinator.run((isCancelled) =>
-    registerCurrentPushDevice(locale, isCancelled),
+    registerCurrentPushDevice(locale, isCancelled, devicePushToken),
   );
 }
 
-async function registerCurrentPushDevice(locale, isCancelled) {
+async function registerCurrentPushDevice(
+  locale,
+  isCancelled,
+  devicePushToken = null,
+) {
   const projectId = getExpoProjectId();
   if (!isExpectedExpoProject(projectId)) {
     throw makePushError('invalid_push_project');
   }
 
+  const expoTokenOptions = { projectId: EXPO_PROJECT_ID };
+  if (devicePushToken) {
+    const normalizedDeviceToken = normalizeDevicePushToken(
+      devicePushToken,
+      Platform.OS,
+    );
+    if (!normalizedDeviceToken) {
+      throw makePushError('invalid_device_push_token');
+    }
+    expoTokenOptions.devicePushToken = normalizedDeviceToken;
+  }
+
   const token = normalizeExpoPushToken(
-    (
-      await Notifications.getExpoPushTokenAsync({
-        projectId: EXPO_PROJECT_ID,
-      })
-    ).data,
+    (await Notifications.getExpoPushTokenAsync(expoTokenOptions)).data,
   );
   if (!token) {
     throw makePushError('invalid_expo_push_token');
