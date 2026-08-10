@@ -31,8 +31,10 @@
     "check:cloud": "node scripts/verify-cloud-security.mjs",
     "check:challenges": "node scripts/verify-challenge-security.mjs",
     "check:friends": "node scripts/verify-friend-security.mjs",
+    "check:moderation": "node scripts/verify-moderation-security.mjs",
     "check:profile": "node scripts/verify-profile-security.mjs",
     "check:ios": "expo export --platform ios --output-dir /private/tmp/islem-ios-export-check --no-bytecode --max-workers 1 --clear",
+    "provision:moderator": "node scripts/provision-moderator-account.mjs",
     "eas:login": "npx eas-cli login",
     "build:ios": "npx eas-cli build --platform ios --profile production",
     "submit:ios": "npx eas-cli submit --platform ios --profile production"

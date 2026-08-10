@@ -106,6 +106,17 @@ npm run check:ios
 
 `expo-doctor` uygulama ve SDK uyumunu kontrol eder. `expo export` ise JavaScript bundle tarafında hızlı bir paketleme kontrolü sağlar.
 
+Yetkili oyuncu bildirimi moderasyonu için ayrı owner hesabını hazırlamak ve
+sunucu erişim sınırlarını doğrulamak amacıyla:
+
+```bash
+npm run provision:moderator
+npm run check:moderation
+```
+
+Owner parolası macOS Anahtar Zinciri'nde tutulur; servis rolü anahtarı kaynak
+koda, `.env` dosyasına veya uygulama paketine yazılmaz.
+
 ## App Store Build
 
 App Store'a gidecek üretim build'i için EAS kullanılır:

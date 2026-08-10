@@ -21,6 +21,7 @@ App Store'daki v1.0 misafir ve cihaz içi kayıt modelini kullanır. Geliştiril
 
 - Geliştirme hesabı: `islemappsupport+test@gmail.com`
 - App Review hesabı: `islemappsupport+appreview@gmail.com`
+- Moderasyon hesabı: `islemappsupport+moderation@gmail.com` (App Review ile paylaşılmaz)
 - Şifreler kaynak kodda veya repoda tutulmaz; macOS Anahtar Zinciri servisleri sırasıyla `islem-supabase-test-account` ve `islem-app-review-account` adlarıyla saklanır.
 - App Review hesabı silinmemeli ve inceleme süresince Supabase backend'i erişilebilir kalmalıdır.
 - App Store Connect > App Review Information alanına App Review hesabının e-posta ve şifresi girilmelidir.
@@ -194,7 +195,7 @@ npm run submit:ios
 - [x] v1.1 gizlilik politikası hesap ve bulut verileriyle güncellendi
 - [x] v1.1 isteğe bağlı push altyapısı, APNs anahtarı ve gizlilik metni hazırlandı
 - [x] v1.1 profil filtresi, oyuncu bildirme ve engelleme akışları hazırlandı
-- [ ] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
+- [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
 - [ ] v1.1 App Store privacy label e-posta, kullanıcı kimliği ve Gameplay Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır
 - [ ] iPad ekran görüntüleri hazır

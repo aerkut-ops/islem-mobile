@@ -25,6 +25,7 @@ import AccountPanel from './src/components/AccountPanel';
 import ChallengeHistory from './src/components/ChallengeHistory';
 import FriendsPanel from './src/components/FriendsPanel';
 import LeagueLeaderboard from './src/components/LeagueLeaderboard';
+import ModerationPanel from './src/components/ModerationPanel';
 import NotificationPanel from './src/components/NotificationPanel';
 import {
   cancelChallengeRoom,
@@ -41,6 +42,7 @@ import {
 } from './src/services/notificationService';
 import { loadPlayerCloudProgress } from './src/services/playerCloudData';
 import { loadOwnProfile } from './src/services/profileService';
+import { loadModeratorAccess } from './src/services/moderationService';
 import {
   disablePushNotifications,
   enablePushNotifications,
@@ -618,6 +620,53 @@ const STRINGS = {
       settingsUnavailable: 'Bu cihazda bildirim kullanılamıyor.',
       settingsError: 'Bildirim ayarı güncellenemedi.',
     },
+    moderation: {
+      icon: 'M',
+      eyebrow: 'Oyuncu güvenliği',
+      title: 'Moderasyon',
+      close: 'Moderasyon ekranını kapat',
+      settingsSubtitle: 'Oyuncu bildirimlerini incele',
+      loading: 'Bildirimler yükleniyor...',
+      loadError: 'Moderasyon listesi şu anda yüklenemedi.',
+      actionError: 'Moderasyon işlemi tamamlanamadı. Lütfen tekrar dene.',
+      historyError: 'İşlem geçmişi şu anda yüklenemedi.',
+      emptyTitle: 'Bu listede bildirim yok',
+      emptyText: 'Yeni oyuncu bildirimleri geldiğinde burada görünecek.',
+      statuses: {
+        pending: 'Bekleyen',
+        reviewing: 'İncelemede',
+        resolved: 'Çözüldü',
+        dismissed: 'Reddedildi',
+      },
+      reasons: {
+        inappropriate_profile: 'Uygunsuz profil adı veya içeriği',
+        harassment: 'Taciz veya kötü davranış',
+        spam_cheating: 'Spam veya hile şüphesi',
+        other: 'Diğer güvenlik sorunu',
+      },
+      resolutions: {
+        profile_cleared: 'Profil adı temizlendi',
+        handled_externally: 'Harici güvenlik işlemi tamamlandı',
+        no_violation: 'İhlal bulunmadı',
+        duplicate: 'Tekrarlanan bildirim',
+      },
+      actions: {
+        review: 'İnceleme başladı',
+        resolve: 'Çözüldü',
+        dismiss: 'Reddedildi',
+      },
+      review: 'İncelemeye al',
+      clearProfile: 'Profili temizle',
+      handledExternally: 'Harici işlem tamamlandı',
+      noViolation: 'İhlal yok',
+      duplicate: 'Tekrar',
+      showHistory: 'İşlem geçmişini göster',
+      hideHistory: 'İşlem geçmişini gizle',
+      noHistory: 'Henüz işlem kaydı yok.',
+      confirmTitle: 'Moderasyon kararını onayla',
+      confirmText: 'Bu karar sunucuda işlem geçmişine kaydedilecek.',
+      cancel: 'Vazgeç',
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Oyun modu seç',
@@ -1181,6 +1230,53 @@ const STRINGS = {
       settingsUnavailable: 'Notifications are unavailable on this device.',
       settingsError: 'The notification setting could not be updated.',
     },
+    moderation: {
+      icon: 'M',
+      eyebrow: 'Player safety',
+      title: 'Moderation',
+      close: 'Close moderation screen',
+      settingsSubtitle: 'Review player reports',
+      loading: 'Loading reports...',
+      loadError: 'The moderation list could not be loaded right now.',
+      actionError: 'The moderation action could not be completed. Please try again.',
+      historyError: 'The action history could not be loaded right now.',
+      emptyTitle: 'No reports in this list',
+      emptyText: 'New player reports will appear here.',
+      statuses: {
+        pending: 'Pending',
+        reviewing: 'Reviewing',
+        resolved: 'Resolved',
+        dismissed: 'Dismissed',
+      },
+      reasons: {
+        inappropriate_profile: 'Inappropriate profile name or content',
+        harassment: 'Harassment or abusive behavior',
+        spam_cheating: 'Spam or suspected cheating',
+        other: 'Another safety concern',
+      },
+      resolutions: {
+        profile_cleared: 'Profile labels cleared',
+        handled_externally: 'External safety action completed',
+        no_violation: 'No violation found',
+        duplicate: 'Duplicate report',
+      },
+      actions: {
+        review: 'Review started',
+        resolve: 'Resolved',
+        dismiss: 'Dismissed',
+      },
+      review: 'Start review',
+      clearProfile: 'Clear profile',
+      handledExternally: 'External action complete',
+      noViolation: 'No violation',
+      duplicate: 'Duplicate',
+      showHistory: 'Show action history',
+      hideHistory: 'Hide action history',
+      noHistory: 'No action has been recorded yet.',
+      confirmTitle: 'Confirm moderation decision',
+      confirmText: 'This decision will be recorded in the server audit history.',
+      cancel: 'Cancel',
+    },
     home: {
       title: 'İşlem',
       eyebrow: 'Choose a mode',
@@ -1385,6 +1481,8 @@ export default function App() {
   const [accountVisible, setAccountVisible] = useState(false);
   const [friendsVisible, setFriendsVisible] = useState(false);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [moderationVisible, setModerationVisible] = useState(false);
+  const [moderatorRole, setModeratorRole] = useState(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [profile, setProfile] = useState(null);
@@ -1631,6 +1729,35 @@ export default function App() {
     }
     refreshUnreadNotificationCount(userId);
   }, [refreshUnreadNotificationCount, session?.user?.id]);
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+    if (!userId) {
+      setModeratorRole(null);
+      setModerationVisible(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    loadModeratorAccess()
+      .then((role) => {
+        if (active && activeUserIdRef.current === userId) {
+          setModeratorRole(role);
+        }
+      })
+      .catch(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setModeratorRole(null);
+          setModerationVisible(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id]);
 
   useEffect(() => {
     const userId = session?.user?.id;
@@ -2636,6 +2763,7 @@ export default function App() {
     playSound('tap');
     setSettingsVisible(false);
     setFriendsVisible(false);
+    setModerationVisible(false);
     setNotificationsVisible(false);
     setAccountVisible(true);
   }, [playSound]);
@@ -2648,6 +2776,7 @@ export default function App() {
   const openFriends = useCallback(() => {
     playSound('tap');
     setSettingsVisible(false);
+    setModerationVisible(false);
     setNotificationsVisible(false);
     setFriendsVisible(true);
   }, [playSound]);
@@ -2662,12 +2791,30 @@ export default function App() {
     setSettingsVisible(false);
     setAccountVisible(false);
     setFriendsVisible(false);
+    setModerationVisible(false);
     setNotificationsVisible(true);
   }, [playSound]);
 
   const closeNotifications = useCallback(() => {
     playSound('tap');
     setNotificationsVisible(false);
+  }, [playSound]);
+
+  const openModeration = useCallback(() => {
+    if (!moderatorRole) {
+      return;
+    }
+    playSound('tap');
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setFriendsVisible(false);
+    setNotificationsVisible(false);
+    setModerationVisible(true);
+  }, [moderatorRole, playSound]);
+
+  const closeModeration = useCallback(() => {
+    playSound('tap');
+    setModerationVisible(false);
   }, [playSound]);
 
   const togglePushNotifications = useCallback(async () => {
@@ -3287,10 +3434,12 @@ export default function App() {
           leaderboardLoading={friendLeaderboardLoading}
           leaderboardOnline={leaderboardOnline}
           league={currentLeague}
+          moderatorRole={moderatorRole}
           onClose={closeSettings}
           onGoHome={showHome}
           onOpenAccount={openAccount}
           onOpenFriends={openFriends}
+          onOpenModeration={openModeration}
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
           onTogglePush={togglePushNotifications}
@@ -3349,6 +3498,13 @@ export default function App() {
           session={session}
           strings={t.notifications}
           visible={notificationsVisible}
+        />
+        <ModerationPanel
+          language={language}
+          onClose={closeModeration}
+          role={moderatorRole}
+          strings={t.moderation}
+          visible={moderationVisible}
         />
         </View>
       </SafeAreaView>
@@ -4587,10 +4743,12 @@ function SettingsPanel({
   leaderboardLoading,
   leaderboardOnline,
   league,
+  moderatorRole,
   onClose,
   onGoHome,
   onOpenAccount,
   onOpenFriends,
+  onOpenModeration,
   onSelectDifficulty,
   onTogglePush,
   onToggleSound,
@@ -4775,6 +4933,28 @@ function SettingsPanel({
                 <Text style={styles.settingValue}>→</Text>
               </View>
             </Pressable>
+
+            {moderatorRole ? (
+              <Pressable
+                accessibilityLabel={strings.moderation.title}
+                accessibilityRole="button"
+                onPress={onOpenModeration}
+                style={({ pressed }) => [
+                  styles.settingRow,
+                  styles.settingRowGap,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.settingIcon}>{strings.moderation.icon}</Text>
+                <View style={styles.settingCopy}>
+                  <Text style={styles.settingTitle}>{strings.moderation.title}</Text>
+                  <Text numberOfLines={1} style={styles.settingSubtitle}>
+                    {strings.moderation.settingsSubtitle}
+                  </Text>
+                </View>
+                <Text style={styles.settingValue}>→</Text>
+              </Pressable>
+            ) : null}
 
             <Text style={styles.subsectionTitle}>{strings.settings.chooseDifficulty}</Text>
             <View style={styles.choiceGrid}>
