@@ -98,6 +98,28 @@ async function updateProfile(supabaseUrl, publishableKey, session, profile) {
   });
 }
 
+async function assertModerationRejected(
+  supabaseUrl,
+  publishableKey,
+  session,
+  profile,
+) {
+  const response = await updateProfile(
+    supabaseUrl,
+    publishableKey,
+    session,
+    profile,
+  );
+  if (response.ok) {
+    throw new Error('Profile moderation accepted prohibited content.');
+  }
+
+  const body = await response.json();
+  if (!String(body.message || '').includes('profile_content_not_allowed')) {
+    throw new Error('Profile moderation returned an unexpected error.');
+  }
+}
+
 async function main() {
   const env = parseEnvFile(new URL('../.env', import.meta.url));
   const supabaseUrl = env.EXPO_PUBLIC_SUPABASE_URL.replace(/\/+$/, '');
@@ -123,6 +145,26 @@ async function main() {
   }
   console.log('PASS  Both test profiles were updated through the secured RPC.');
 
+  await assertModerationRejected(
+    supabaseUrl,
+    publishableKey,
+    sessions[0],
+    {
+      displayName: sessions[0].displayName,
+      username: 'admin',
+    },
+  );
+  await assertModerationRejected(
+    supabaseUrl,
+    publishableKey,
+    sessions[0],
+    {
+      displayName: 's.h.i.t',
+      username: sessions[0].username,
+    },
+  );
+  console.log('PASS  Reserved and obfuscated unsafe profile names are rejected.');
+
   const ownResponse = await fetch(
     `${supabaseUrl}/rest/v1/profiles?select=user_id,username,display_name`,
     { headers: authHeaders(publishableKey, sessions[0]) },
@@ -131,9 +173,11 @@ async function main() {
   if (
     !ownResponse.ok ||
     ownRows.length !== 1 ||
-    ownRows[0].user_id !== sessions[0].userId
+    ownRows[0].user_id !== sessions[0].userId ||
+    ownRows[0].username !== sessions[0].username ||
+    ownRows[0].display_name !== sessions[0].displayName
   ) {
-    throw new Error('Development account profile select is not isolated.');
+    throw new Error('Rejected profile content changed the stored profile.');
   }
 
   const otherResponse = await fetch(

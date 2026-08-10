@@ -407,6 +407,8 @@ const STRINGS = {
       displayName: 'Görünen ad',
       displayNamePlaceholder: 'Adın veya oyun adın',
       displayNameInvalid: 'Görünen ad en fazla 40 karakter olabilir.',
+      profileContentNotAllowed:
+        'Bu profil adı kullanılamaz. Lütfen farklı bir ad seç.',
       notSet: 'Belirlenmedi',
       cloudReady: 'Bulut kaydı hazır',
       cloudText: 'Yeni oyun sonuçların bu hesaba güvenle eşitlenir.',
@@ -968,6 +970,8 @@ const STRINGS = {
       displayName: 'Display name',
       displayNamePlaceholder: 'Your name or player name',
       displayNameInvalid: 'The display name can contain up to 40 characters.',
+      profileContentNotAllowed:
+        'This profile name cannot be used. Please choose another name.',
       notSet: 'Not set',
       cloudReady: 'Cloud sync ready',
       cloudText: 'New game results are safely synced to this account.',

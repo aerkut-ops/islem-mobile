@@ -298,6 +298,11 @@ export default function AccountPanel({
         errorText.includes('invalid_display_name')
       ) {
         setProfileError(strings.displayNameInvalid);
+      } else if (
+        errorCode === 'profile_content_not_allowed' ||
+        errorText.includes('profile_content_not_allowed')
+      ) {
+        setProfileError(strings.profileContentNotAllowed);
       } else {
         setProfileError(strings.profileSaveError);
       }

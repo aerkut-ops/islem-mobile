@@ -15,7 +15,7 @@ Bu dosya App Store Connect'e girilecek bilgileri, yayın metinlerini ve yayın �
 
 ## v1.1 Geliştirme Notu
 
-App Store'daki v1.0 misafir ve cihaz içi kayıt modelini kullanır. Geliştirilmekte olan v1.1 isteğe bağlı e-posta hesabı, Supabase bulut senkronizasyonu ve uygulama içinden hesap silme özelliği ekler. Aşağıdaki v1.1 gizlilik değişiklikleri yeni sürüm gönderilmeden önce App Store Connect'te yayımlanmalıdır.
+App Store'daki v1.0 misafir ve cihaz içi kayıt modelini kullanır. Geliştirilmekte olan v1.1 isteğe bağlı e-posta hesabı, Supabase bulut senkronizasyonu, arkadaş özellikleri ve uygulama içinden hesap silme özelliği ekler. Oyuncuların oluşturduğu profil adları sunucuda filtrelenir; oyuncu bildirme ve engelleme akışları bulunur. Aşağıdaki v1.1 gizlilik değişiklikleri yeni sürüm gönderilmeden önce App Store Connect'te yayımlanmalıdır.
 
 ### Test Hesapları
 
@@ -193,6 +193,7 @@ npm run submit:ios
 - [x] v1.1 magic link iOS geri dönüşü ve kalıcı oturum test edildi
 - [x] v1.1 gizlilik politikası hesap ve bulut verileriyle güncellendi
 - [x] v1.1 isteğe bağlı push altyapısı, APNs anahtarı ve gizlilik metni hazırlandı
+- [x] v1.1 profil filtresi, oyuncu bildirme ve engelleme akışları hazırlandı
 - [ ] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
 - [ ] v1.1 App Store privacy label e-posta, kullanıcı kimliği ve Gameplay Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır
