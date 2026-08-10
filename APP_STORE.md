@@ -209,6 +209,6 @@ npm run submit:ios
 - [x] `npm run check:cloud` hesap izolasyonu ve anonim erişim kontrolü temiz
 - [x] `npm run check:ios` temiz
 - [x] v1.1 yerel Release build bağlı iPhone üzerinde açıldı
-- [ ] TestFlight `1.1.0 (8)` gerçek cihazda test edildi
+- [x] TestFlight `1.1.0 (8)` gerçek cihazda test edildi
 - [x] TestFlight `1.1.0 (8)` App Store Connect'e yüklendi
 - [ ] App Review'e gönderildi
