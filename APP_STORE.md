@@ -7,8 +7,8 @@ Bu dosya App Store Connect'e girilecek bilgileri, yayın metinlerini ve yayın �
 - Uygulama adı: İşlem
 - Bundle ID: com.aydin.islem
 - SKU önerisi: islem-ios-001
-- Sürüm: 1.0.0
-- Build: 1
+- Sürüm: 1.1.0
+- Build: EAS remote auto-increment
 - Kategori önerisi: Games / Puzzle veya Education
 - Yaş derecelendirmesi önerisi: 4+
 - Desteklenen diller: Türkçe, İngilizce
@@ -196,6 +196,9 @@ npm run submit:ios
 - [x] v1.1 isteğe bağlı push altyapısı, APNs anahtarı ve gizlilik metni hazırlandı
 - [x] v1.1 profil filtresi, oyuncu bildirme ve engelleme akışları hazırlandı
 - [x] v1.1 profil yaptırımı için kimliksiz uygulama içi ve uzaktan bildirim hazırlandı
+- [x] v1.1 Apple privacy manifesti toplanan veri türleriyle güncellendi
+- [x] v1.1 EAS production Supabase, yönlendirme ve Turnstile sayfası değişkenleri tanımlandı
+- [ ] Üretim Turnstile widget anahtarı EAS ve Supabase Auth üzerinde etkinleştirildi
 - [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
 - [ ] v1.1 App Store privacy label e-posta, kullanıcı kimliği ve Gameplay Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır
@@ -204,5 +207,6 @@ npm run submit:ios
 - [x] `npm run check` temiz
 - [x] `npm run check:cloud` hesap izolasyonu ve anonim erişim kontrolü temiz
 - [x] `npm run check:ios` temiz
+- [x] v1.1 yerel Release build bağlı iPhone üzerinde açıldı
 - [ ] TestFlight build test edildi
 - [ ] App Review'e gönderildi
