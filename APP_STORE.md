@@ -58,7 +58,8 @@ Kolay, Orta, Zor ve Usta seviyeler farklı hedefler ve sayı kombinasyonlarıyla
 - Başarı rozetleri ve istatistikler
 - İnternetsiz oynanış
 - Cihaz diline göre Türkçe/İngilizce arayüz
-- Reklam, hesap ve takip yok
+- Hesapsız misafir oyun ve isteğe bağlı bulut hesabı
+- Reklam ve uygulamalar arası takip yok
 - iPhone ve iPad desteği
 
 ## Anahtar Kelime Önerileri
@@ -198,9 +199,9 @@ npm run submit:ios
 - [x] v1.1 profil yaptırımı için kimliksiz uygulama içi ve uzaktan bildirim hazırlandı
 - [x] v1.1 Apple privacy manifesti toplanan veri türleriyle güncellendi
 - [x] v1.1 EAS production Supabase, yönlendirme ve Turnstile sayfası değişkenleri tanımlandı
-- [ ] Üretim Turnstile widget anahtarı EAS ve Supabase Auth üzerinde etkinleştirildi
+- [x] Üretim Turnstile widget anahtarı EAS ve Supabase Auth üzerinde etkinleştirildi
 - [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
-- [ ] v1.1 App Store privacy label e-posta, kullanıcı kimliği ve Gameplay Content olarak güncellendi
+- [ ] v1.1 App Store privacy label Email Address, User ID, Device ID, Gameplay Content ve Other User Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır
 - [ ] iPad ekran görüntüleri hazır
 - [ ] Yaş derecelendirmesi dolduruldu
@@ -208,5 +209,6 @@ npm run submit:ios
 - [x] `npm run check:cloud` hesap izolasyonu ve anonim erişim kontrolü temiz
 - [x] `npm run check:ios` temiz
 - [x] v1.1 yerel Release build bağlı iPhone üzerinde açıldı
-- [ ] TestFlight build test edildi
+- [ ] TestFlight `1.1.0 (8)` gerçek cihazda test edildi
+- [x] TestFlight `1.1.0 (8)` App Store Connect'e yüklendi
 - [ ] App Review'e gönderildi

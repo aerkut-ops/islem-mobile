@@ -167,6 +167,6 @@ App Store Connect'e girilecek açıklama, anahtar kelime, gizlilik ve ekran gör
 - Geçici iOS bundle id: `com.aydin.islem`
 - Geçici Android package: `com.aydin.islem`
 - v1.1 isteğe bağlı Supabase hesabı, bulut skorları, seri senkronizasyonu ve kullanıcı kontrollü arkadaş bildirimleri ekler; oyun misafir olarak çalışmaya devam eder.
-- v1.1 App Store privacy label beyanında e-posta adresi, kullanıcı kimliği ve oyun içeriği açıklanmalıdır. Reklam ve takip kullanılmaz.
+- v1.1 App Store privacy label beyanında e-posta adresi, kullanıcı kimliği, bildirim cihaz kimliği, oyun içeriği ve diğer kullanıcı içeriği açıklanmalıdır. Reklam ve takip kullanılmaz.
 - `PRIVACY.md` gizlilik politikası taslağıdır; App Store Connect için web'de yayınlanıp URL olarak girilmeli.
 - App Store öncesinde bundle id, ikon, ekran görüntüleri, gizlilik politikası URL'si ve yaş derecelendirmesi netleştirilmeli.
