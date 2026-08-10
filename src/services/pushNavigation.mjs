@@ -10,6 +10,10 @@ const CHALLENGE_NOTIFICATION_TYPES = new Set([
   'challenge_started',
 ]);
 
+const ACCOUNT_NOTIFICATION_TYPES = new Set([
+  'moderation_profile_cleared',
+]);
+
 function normalizeBoundedString(value, maxLength = 100) {
   if (typeof value !== 'string') {
     return null;
@@ -29,7 +33,8 @@ export function normalizePushAction(data) {
   const type = normalizeBoundedString(data.type, 40);
   if (
     !FRIEND_NOTIFICATION_TYPES.has(type) &&
-    !CHALLENGE_NOTIFICATION_TYPES.has(type)
+    !CHALLENGE_NOTIFICATION_TYPES.has(type) &&
+    !ACCOUNT_NOTIFICATION_TYPES.has(type)
   ) {
     return null;
   }
@@ -37,9 +42,11 @@ export function normalizePushAction(data) {
   return {
     entityId: normalizeBoundedString(data.entityId),
     notificationId: normalizeBoundedString(data.notificationId),
-    screen: CHALLENGE_NOTIFICATION_TYPES.has(type)
-      ? 'challenge'
-      : 'friends',
+    screen: ACCOUNT_NOTIFICATION_TYPES.has(type)
+      ? 'account'
+      : CHALLENGE_NOTIFICATION_TYPES.has(type)
+        ? 'challenge'
+        : 'friends',
     type,
   };
 }

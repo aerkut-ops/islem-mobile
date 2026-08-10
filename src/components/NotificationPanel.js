@@ -20,6 +20,10 @@ const CHALLENGE_DESTINATION_TYPES = new Set([
   'challenge_started',
 ]);
 
+const ACCOUNT_DESTINATION_TYPES = new Set([
+  'moderation_profile_cleared',
+]);
+
 export default function NotificationPanel({
   configured,
   loading,
@@ -113,6 +117,11 @@ export default function NotificationPanel({
     onOpenChallenge();
   };
 
+  const handleOpenAccount = () => {
+    onClose();
+    onOpenAccount();
+  };
+
   if (!visible) {
     return null;
   }
@@ -166,7 +175,11 @@ export default function NotificationPanel({
                 handleDismiss(notification.notification_id)
               }
               onOpen={
-                CHALLENGE_DESTINATION_TYPES.has(
+                ACCOUNT_DESTINATION_TYPES.has(
+                  notification.notification_type,
+                )
+                  ? handleOpenAccount
+                  : CHALLENGE_DESTINATION_TYPES.has(
                   notification.notification_type,
                 )
                   ? handleOpenChallenge
@@ -223,9 +236,12 @@ function NotificationRow({
   onOpen,
   strings,
 }) {
-  const name =
-    notification.actor_display_name ||
-    `@${notification.actor_username}`;
+  const systemNotification = ACCOUNT_DESTINATION_TYPES.has(
+    notification.notification_type,
+  );
+  const name = systemNotification
+    ? strings.systemActor
+    : notification.actor_display_name || `@${notification.actor_username}`;
   const message = {
     challenge_accepted: strings.challengeAccepted(name),
     challenge_invite: strings.challengeInvite(name),
@@ -233,9 +249,13 @@ function NotificationRow({
     challenge_started: strings.challengeStarted(name),
     friend_accepted: strings.friendAccepted(name),
     friend_request: strings.friendRequest(name),
+    moderation_profile_cleared: strings.moderationProfileCleared,
   }[notification.notification_type];
-  const openLabel =
-    CHALLENGE_DESTINATION_TYPES.has(notification.notification_type)
+  const openLabel = ACCOUNT_DESTINATION_TYPES.has(
+    notification.notification_type,
+  )
+    ? strings.openAccount
+    : CHALLENGE_DESTINATION_TYPES.has(notification.notification_type)
       ? strings.openChallenge
       : strings.openFriends;
 
@@ -257,7 +277,7 @@ function NotificationRow({
           ]}
         >
           <Text style={styles.actorMarkText}>
-            {name.slice(0, 1).toUpperCase()}
+            {systemNotification ? '!' : name.slice(0, 1).toUpperCase()}
           </Text>
         </View>
         <View style={styles.notificationCopy}>

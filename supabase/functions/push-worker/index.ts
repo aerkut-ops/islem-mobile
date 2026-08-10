@@ -18,9 +18,10 @@ type ClaimedNotification = {
     | 'challenge_invite'
     | 'challenge_accepted'
     | 'challenge_ready'
-    | 'challenge_started';
-  actor_id: string;
-  actor_username: string;
+    | 'challenge_started'
+    | 'moderation_profile_cleared';
+  actor_id: string | null;
+  actor_username: string | null;
   actor_display_name: string | null;
   entity_id: string;
   attempt_count: number;
@@ -76,6 +77,11 @@ function notificationCopy(
   notification: ClaimedNotification,
   locale: 'tr' | 'en',
 ) {
+  if (notification.notification_type === 'moderation_profile_cleared') {
+    return locale === 'tr'
+      ? 'Profil adın güvenlik incelemesi sonrasında sıfırlandı. Yeni bir kullanıcı adı seçebilirsin.'
+      : 'Your profile labels were reset after a safety review. You can choose a new username.';
+  }
   const actor =
     notification.actor_display_name || `@${notification.actor_username}`;
   if (notification.notification_type === 'friend_request') {
@@ -106,6 +112,22 @@ function notificationCopy(
   return locale === 'tr'
     ? `${actor} hazır. Yarış başlıyor!`
     : `${actor} is ready. The race is starting!`;
+}
+
+function notificationScreen(notificationType: string) {
+  if (notificationType === 'moderation_profile_cleared') {
+    return 'account';
+  }
+  if (
+    [
+      'challenge_accepted',
+      'challenge_ready',
+      'challenge_started',
+    ].includes(notificationType)
+  ) {
+    return 'challenge';
+  }
+  return 'friends';
 }
 
 function normalizeTickets(payload: unknown) {
@@ -317,14 +339,7 @@ async function dispatchPendingNotifications(
           data: {
             entityId: notification.entity_id,
             notificationId: notification.notification_id,
-            screen:
-              [
-                'challenge_accepted',
-                'challenge_ready',
-                'challenge_started',
-              ].includes(notification.notification_type)
-                ? 'challenge'
-                : 'friends',
+            screen: notificationScreen(notification.notification_type),
             type: notification.notification_type,
           },
         },

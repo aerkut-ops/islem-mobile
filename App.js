@@ -597,15 +597,18 @@ const STRINGS = {
       actionError: 'Bildirim kaldırılamadı. Lütfen tekrar dene.',
       retry: 'Tekrar dene',
       emptyTitle: 'Yeni bildirim yok',
-      emptyText: 'Arkadaşlık ve yarış bildirimleri burada görünecek.',
+      emptyText: 'Arkadaşlık, yarış ve hesap bildirimleri burada görünecek.',
       friendRequest: (name) => `${name} sana arkadaşlık isteği gönderdi.`,
       friendAccepted: (name) => `${name} arkadaşlık isteğini kabul etti.`,
       challengeInvite: (name) => `${name} sana meydan okuma daveti gönderdi.`,
       challengeAccepted: (name) => `${name} meydan okuma davetini kabul etti.`,
       challengeReady: (name) => `${name} yarış için hazır.`,
       challengeStarted: (name) => `${name} hazır. Yarış başlıyor!`,
+      systemActor: 'İşlem',
+      moderationProfileCleared: 'Profil adın güvenlik incelemesi sonrasında sıfırlandı. Yeni bir kullanıcı adı seçebilirsin.',
       openFriends: 'Arkadaşları aç',
       openChallenge: 'Meydan okumayı aç',
+      openAccount: 'Hesabı aç',
       dismiss: 'Bildirimi kaldır',
       newLabel: 'Yeni',
       now: 'Şimdi',
@@ -1207,15 +1210,18 @@ const STRINGS = {
       actionError: 'The notification could not be removed. Please try again.',
       retry: 'Try again',
       emptyTitle: 'No new notifications',
-      emptyText: 'Friend and race notifications will appear here.',
+      emptyText: 'Friend, race, and account notifications will appear here.',
       friendRequest: (name) => `${name} sent you a friend request.`,
       friendAccepted: (name) => `${name} accepted your friend request.`,
       challengeInvite: (name) => `${name} sent you a challenge invitation.`,
       challengeAccepted: (name) => `${name} accepted your challenge invitation.`,
       challengeReady: (name) => `${name} is ready to race.`,
       challengeStarted: (name) => `${name} is ready. The race is starting!`,
+      systemActor: 'İşlem',
+      moderationProfileCleared: 'Your profile labels were reset after a safety review. You can choose a new username.',
       openFriends: 'Open friends',
       openChallenge: 'Open challenge',
+      openAccount: 'Open account',
       dismiss: 'Dismiss notification',
       newLabel: 'New',
       now: 'Now',
@@ -3019,7 +3025,14 @@ export default function App() {
       setHomeVisible(true);
       setSettingsVisible(false);
       setAccountVisible(false);
+      setModerationVisible(false);
       setNotificationsVisible(false);
+      if (action.screen === 'account') {
+        setFriendsVisible(false);
+        setHomePage('home');
+        setAccountVisible(true);
+        return;
+      }
       if (action.screen === 'challenge') {
         setFriendsVisible(false);
         setHomePage('challenge');

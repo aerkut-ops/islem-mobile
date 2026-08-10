@@ -86,7 +86,7 @@ Not: App Store Connect'te Privacy Policy URL zorunludur. `store-web/privacy.html
 
 ## v1.1 Gizlilik Beyanı
 
-v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Oyuncu güvenliği bildirimlerinde bildiren ve bildirilen hesap kimlikleri, sabit neden ve profil adı kopyası moderasyon için tutulur. Kullanıcı uzaktan bildirimleri açarsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve teslim durumu işlenir. Giriş sırasında bot ve otomatik kötüye kullanım koruması için Cloudflare Turnstile ağ ve cihaz/tarayıcı sinyallerini işleyebilir. Veriler hesap girişi, güvenlik, moderasyon, skor/seri senkronizasyonu, arkadaş bildirimleri ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve geliştirici tarafından uygulamalar arası kullanıcı takibi yapılmaz.
+v1.1'de hesap isteğe bağlıdır ve misafir oyun devam eder. Hesap açan kullanıcılar için e-posta adresi, Supabase kullanıcı kimliği ve tamamlanan oyun özetleri bulutta saklanır. Oyuncu güvenliği bildirimlerinde bildiren ve bildirilen hesap kimlikleri, sabit neden ve profil adı kopyası moderasyon için tutulur. Profil adı güvenlik incelemesi sonucunda sıfırlanırsa etkilenen oyuncuya bildiren veya moderatör kimliğini içermeyen özel bir sistem bildirimi gönderilir. Kullanıcı uzaktan bildirimleri açarsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve teslim durumu işlenir. Giriş sırasında bot ve otomatik kötüye kullanım koruması için Cloudflare Turnstile ağ ve cihaz/tarayıcı sinyallerini işleyebilir. Veriler hesap girişi, güvenlik, moderasyon, skor/seri senkronizasyonu, arkadaş bildirimleri ve oyun özellikleri için kullanılır. Reklam, üçüncü taraf pazarlaması ve geliştirici tarafından uygulamalar arası kullanıcı takibi yapılmaz.
 
 v1.1 gönderilmeden önce App Store Connect > App Privacy altında "Yes, we collect data" seçilmeli ve en az şu veri türleri beyan edilmelidir:
 
@@ -195,6 +195,7 @@ npm run submit:ios
 - [x] v1.1 gizlilik politikası hesap ve bulut verileriyle güncellendi
 - [x] v1.1 isteğe bağlı push altyapısı, APNs anahtarı ve gizlilik metni hazırlandı
 - [x] v1.1 profil filtresi, oyuncu bildirme ve engelleme akışları hazırlandı
+- [x] v1.1 profil yaptırımı için kimliksiz uygulama içi ve uzaktan bildirim hazırlandı
 - [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
 - [ ] v1.1 App Store privacy label e-posta, kullanıcı kimliği ve Gameplay Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır

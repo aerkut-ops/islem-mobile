@@ -305,6 +305,12 @@ async function main() {
       throw new Error('Moderator report list is incomplete or exposes reporter data.');
     }
 
+    await assertRpcDenied(context, moderator, 'moderate_player_report', {
+      p_action: 'resolve',
+      p_report_id: report.report_id,
+      p_resolution: 'profile_cleared',
+    });
+
     const reviewResult = await rpc(
       context,
       moderator,
@@ -319,22 +325,57 @@ async function main() {
       throw new Error('Report did not enter the reviewing state.');
     }
 
-    const dismissResult = await rpc(
+    const resolveResult = await rpc(
       context,
       moderator,
       'moderate_player_report',
       {
-        p_action: 'dismiss',
+        p_action: 'resolve',
         p_report_id: report.report_id,
-        p_resolution: 'no_violation',
+        p_resolution: 'profile_cleared',
       },
     );
     if (
-      dismissResult?.[0]?.status !== 'dismissed' ||
-      dismissResult[0].resolution !== 'no_violation'
+      resolveResult?.[0]?.status !== 'resolved' ||
+      resolveResult[0].resolution !== 'profile_cleared' ||
+      resolveResult[0].profile_cleared !== true
     ) {
-      throw new Error('Report was not dismissed with the expected resolution.');
+      throw new Error('Report did not clear the profile with the expected resolution.');
     }
+
+    const playerProfile = await requestJson(
+      `${context.supabaseUrl}/rest/v1/profiles?select=username,display_name&user_id=eq.${player.userId}`,
+      { headers: authHeaders(context.publishableKey, player.accessToken) },
+      'Read moderated player profile',
+    );
+    if (
+      playerProfile?.length !== 1 ||
+      playerProfile[0].username !== null ||
+      playerProfile[0].display_name !== null
+    ) {
+      throw new Error('Profile labels remained visible after moderation.');
+    }
+
+    const playerNotifications = await rpc(
+      context,
+      player,
+      'list_user_notifications',
+      { p_limit: 50 },
+    );
+    const moderationNotice = playerNotifications.find(
+      (item) =>
+        item.notification_type === 'moderation_profile_cleared' &&
+        item.entity_id === report.report_id,
+    );
+    if (
+      !moderationNotice ||
+      moderationNotice.actor_id !== null ||
+      moderationNotice.actor_username !== null ||
+      moderationNotice.actor_display_name !== null
+    ) {
+      throw new Error('Profile moderation notice is missing or exposes an actor.');
+    }
+    console.log('PASS  Profile enforcement creates one actor-free player notice.');
 
     const actions = await rpc(
       context,
@@ -347,7 +388,8 @@ async function main() {
       actions[0].previous_status !== 'pending' ||
       actions[0].next_status !== 'reviewing' ||
       actions[1].previous_status !== 'reviewing' ||
-      actions[1].next_status !== 'dismissed'
+      actions[1].next_status !== 'resolved' ||
+      actions[1].resolution !== 'profile_cleared'
     ) {
       throw new Error('Moderation audit history is incomplete or out of order.');
     }

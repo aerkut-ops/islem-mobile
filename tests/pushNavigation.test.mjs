@@ -40,6 +40,23 @@ test('friend and invitation notifications open the friends screen', () => {
   );
 });
 
+test('profile moderation notifications open the account screen', () => {
+  assert.deepEqual(
+    normalizePushAction({
+      entityId: 'report-id',
+      notificationId: 'notification-id',
+      screen: 'friends',
+      type: 'moderation_profile_cleared',
+    }),
+    {
+      entityId: 'report-id',
+      notificationId: 'notification-id',
+      screen: 'account',
+      type: 'moderation_profile_cleared',
+    },
+  );
+});
+
 test('notification payloads are bounded and unsupported types are ignored', () => {
   assert.equal(normalizePushAction(null), null);
   assert.equal(normalizePushAction({ type: 'private_message' }), null);

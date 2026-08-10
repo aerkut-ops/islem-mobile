@@ -5,6 +5,11 @@ const NOTIFICATION_TYPES = new Set([
   'challenge_accepted',
   'challenge_ready',
   'challenge_started',
+  'moderation_profile_cleared',
+]);
+
+const SYSTEM_NOTIFICATION_TYPES = new Set([
+  'moderation_profile_cleared',
 ]);
 
 function normalizeNonNegativeInteger(value) {
@@ -39,12 +44,14 @@ export function normalizeNotifications(rows) {
 
   for (const row of Array.isArray(rows) ? rows : []) {
     const createdAt = new Date(row?.created_at);
+    const systemNotification = SYSTEM_NOTIFICATION_TYPES.has(
+      row?.notification_type,
+    );
     if (
       !row?.notification_id ||
-      !row?.actor_id ||
-      !row?.actor_username ||
       !row?.entity_id ||
       !NOTIFICATION_TYPES.has(row.notification_type) ||
+      (!systemNotification && (!row?.actor_id || !row?.actor_username)) ||
       Number.isNaN(createdAt.getTime())
     ) {
       continue;
@@ -53,9 +60,9 @@ export function normalizeNotifications(rows) {
     notifications.push({
       notification_id: String(row.notification_id),
       notification_type: row.notification_type,
-      actor_id: String(row.actor_id),
-      actor_username: String(row.actor_username),
-      actor_display_name: row.actor_display_name
+      actor_id: systemNotification ? null : String(row.actor_id),
+      actor_username: systemNotification ? null : String(row.actor_username),
+      actor_display_name: !systemNotification && row.actor_display_name
         ? String(row.actor_display_name)
         : null,
       entity_id: String(row.entity_id),
