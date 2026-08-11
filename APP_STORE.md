@@ -35,6 +35,7 @@ Verilen sayıları sürükleyip işlemleri seçerek hedef sayılara ulaşmaya ç
 - Sayılarla hedefe ulaş
 - Sürükle, işlem seç, çöz
 - Her yaş için sayı oyunu
+- English (U.S.): Reach targets with numbers
 
 ## Açıklama
 
@@ -239,7 +240,7 @@ npm run submit:ios
 - [ ] Expo/EAS hesabına giriş yapıldı
 - [ ] `com.aydin.islem` bundle ID Apple Developer hesabında uygun
 - [ ] App Store Connect'te uygulama kaydı açıldı
-- [ ] App Store açıklaması mevcut uygulamayla uyumlu
+- [x] App Store açıklaması mevcut uygulamayla uyumlu
 - [ ] Görünmeyen veya geliştirme aşamasındaki özellikler App Store metninde vaat edilmedi
 - [x] Privacy policy sayfasındaki placeholder iletişim metni kaldırıldı
 - [x] Support sayfasındaki placeholder iletişim metni kaldırıldı
@@ -260,9 +261,9 @@ npm run submit:ios
 - [x] Üretim Turnstile widget anahtarı EAS ve Supabase Auth üzerinde etkinleştirildi
 - [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
 - [x] v1.1 App Store privacy label Email Address, User ID, Device ID, Gameplay Content ve Other User Content olarak güncellendi
-- [ ] iPhone ekran görüntüleri hazır
-- [ ] iPad ekran görüntüleri hazır
-- [ ] Yaş derecelendirmesi dolduruldu
+- [x] iPhone ekran görüntüleri hazır
+- [x] iPad ekran görüntüleri hazır
+- [x] Yaş derecelendirmesi dolduruldu
 - [x] `npm run check` temiz
 - [x] `npm run check:cloud` hesap izolasyonu ve anonim erişim kontrolü temiz
 - [x] `npm run check:ios` temiz
