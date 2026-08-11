@@ -4,17 +4,79 @@ import { getLocales } from 'expo-localization';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  SafeAreaProvider,
+  SafeAreaView,
+} from 'react-native-safe-area-context';
+import {
+  ActivityIndicator,
   Animated,
+  AppState,
   Easing,
+  Linking,
   PanResponder,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+import AccountPanel from './src/components/AccountPanel';
+import ChallengeHistory from './src/components/ChallengeHistory';
+import FriendsPanel from './src/components/FriendsPanel';
+import LeagueLeaderboard from './src/components/LeagueLeaderboard';
+import ModerationPanel from './src/components/ModerationPanel';
+import NotificationPanel from './src/components/NotificationPanel';
+import {
+  cancelChallengeRoom,
+  loadActiveChallengeRoom,
+  loadChallengeHistory,
+  readyChallengeRoom,
+  submitChallengeResult,
+  syncChallengeOperations,
+} from './src/services/challengeService';
+import { loadIncomingFriendRequestCount } from './src/services/friendService';
+import {
+  loadUnreadNotificationCount,
+  markNotificationsRead,
+} from './src/services/notificationService';
+import { loadPlayerCloudProgress } from './src/services/playerCloudData';
+import { loadOwnProfile } from './src/services/profileService';
+import { loadModeratorAccess } from './src/services/moderationService';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  subscribeToNotificationEvents,
+  subscribeToPushTokenChanges,
+  syncPushRegistration,
+} from './src/services/pushService';
+import {
+  pushActionFromNotification,
+  pushActionFromResponse,
+} from './src/services/pushNavigation.mjs';
+import {
+  handleAuthCallback,
+  subscribeToAuthChanges,
+} from './src/services/authService';
+import {
+  buildGameResultPayload,
+  flushQueuedGameResults,
+  hasQueuedGameResults,
+  submitGameResult,
+} from './src/services/gameResultSync';
+import {
+  loadFriendWeeklyLeaderboard,
+  loadWeeklyLeagueLeaderboard,
+} from './src/services/leaderboardService';
+import { reconcilePlayerProgress } from './src/services/playerProgressReconcile.mjs';
+import {
+  getCurrentSession,
+  isSupabaseConfigured,
+} from './src/services/supabaseClient';
+import {
+  getActiveStreak,
+  getMillisecondsUntilNextDay,
+} from './src/utils/streak';
 
 const ALL_OPERATIONS = ['+', '-', '×', '÷'];
 
@@ -112,9 +174,13 @@ const DIFFICULTIES = {
 
 const BEST_SCORE_PREFIX = 'islem-best';
 const PROGRESS_KEY = 'islem-progress-v1';
+const PROGRESS_OWNER_KEY_PREFIX = `${PROGRESS_KEY}:owner`;
 const MODE_NORMAL = 'normal';
 const MODE_DAILY = 'daily';
 const MODE_WEEKLY = 'weekly';
+const MODE_CHALLENGE = 'challenge';
+const CHALLENGE_GAME_PREFIX = 'islem-challenge-game-v1';
+const CHALLENGE_POLL_MS = 2000;
 const PLAYABLE_DIFFICULTIES = ['easy', 'medium', 'hard', 'master'];
 const SOUND_DEBOUNCE_MS = 90;
 const BADGE_DEFS = [
@@ -277,6 +343,7 @@ const STRINGS = {
       normal: 'Normal oyun',
       daily: 'Günün bulmacası',
       weekly: 'Haftalık meydan okuma',
+      challenge: 'Arkadaş yarışı',
     },
     status: {
       streak: 'Seri',
@@ -305,7 +372,10 @@ const STRINGS = {
       soundOff: 'Ses kapalı',
       startDaily: 'Günün bulmacasını aç',
       startWeekly: 'Haftalık meydan okumayı aç',
-      localLeaderboardNote: 'Şimdilik cihaz içi liste. Arkadaş listesi için online sistem gerekir.',
+      localLeaderboardNote: 'Misafir listesi bu cihazda örnek oyuncularla gösterilir.',
+      friendLeaderboardNote: 'Yalnızca sen ve kabul ettiğin arkadaşların görünür.',
+      friendLeaderboardLoading: 'Arkadaş puanları yükleniyor...',
+      friendLeaderboardError: 'Arkadaş puanları şu anda yüklenemedi.',
       you: 'Sen',
       gamesCompleted: 'Bitirilen',
       totalScore: 'Toplam puan',
@@ -315,6 +385,290 @@ const STRINGS = {
       bestStreak: 'En iyi seri',
       weeklyScore: 'Bu hafta',
       homeSubtitle: 'Oyun modlarını göster',
+    },
+    account: {
+      icon: 'K',
+      eyebrow: 'Bulut hesabı',
+      title: 'Hesap',
+      close: 'Hesap ekranını kapat',
+      loading: 'Oturum kontrol ediliyor...',
+      signedIn: 'Oturum açık',
+      profile: 'Profil',
+      profileLoading: 'Profil yükleniyor...',
+      profileLoadError: 'Profil bilgileri şu anda yüklenemedi.',
+      profileRetry: 'Tekrar dene',
+      editProfile: 'Düzenle',
+      saveProfile: 'Profili kaydet',
+      profileSaved: 'Profilin kaydedildi.',
+      profileSaveError: 'Profil kaydedilemedi. Lütfen tekrar dene.',
+      username: 'Kullanıcı adı',
+      usernamePlaceholder: 'ornek_oyuncu',
+      usernameHelp: '3-24 karakter: küçük İngilizce harf, rakam veya alt çizgi.',
+      usernameInvalid: 'Geçerli bir kullanıcı adı yaz.',
+      usernameTaken: 'Bu kullanıcı adı başka bir oyuncu tarafından kullanılıyor.',
+      displayName: 'Görünen ad',
+      displayNamePlaceholder: 'Adın veya oyun adın',
+      displayNameInvalid: 'Görünen ad en fazla 40 karakter olabilir.',
+      profileContentNotAllowed:
+        'Bu profil adı kullanılamaz. Lütfen farklı bir ad seç.',
+      notSet: 'Belirlenmedi',
+      cloudReady: 'Bulut kaydı hazır',
+      cloudText: 'Yeni oyun sonuçların bu hesaba güvenle eşitlenir.',
+      cloudStats: 'Bulut istatistikleri',
+      statsLoading: 'İstatistikler yükleniyor...',
+      statsError: 'Bulut istatistikleri şu anda yüklenemedi.',
+      totalScore: 'Toplam puan',
+      completedGames: 'Tamamlanan oyun',
+      solvedTargets: 'Çözülen hedef',
+      currentStreak: 'Mevcut seri',
+      signOut: 'Çıkış yap',
+      deleteTitle: 'Hesabı sil',
+      deleteText: 'Hesabınla birlikte bulut skorların, serin ve profil bilgilerin kalıcı olarak silinir.',
+      deleteAccount: 'Hesabımı sil',
+      deleteConfirmText: 'Bu işlem geri alınamaz. Hesabını ve bulut verilerini kalıcı olarak silmek istediğine emin misin?',
+      cancel: 'Vazgeç',
+      deleteForever: 'Kalıcı olarak sil',
+      deleteError: 'Hesap silinemedi. İnternet bağlantını kontrol edip tekrar dene.',
+      guestTitle: 'İlerlemeni yanında taşı',
+      guestText: 'Skorlarını ve serini korumak için e-posta adresinle giriş yap veya ücretsiz hesap oluştur.',
+      emailLabel: 'E-posta',
+      emailPlaceholder: 'ornek@eposta.com',
+      magicLinkMethod: 'E-posta bağlantısı',
+      passwordMethod: 'Şifre',
+      magicLinkHelp: 'Şifre gerekmez. E-postana gelen güvenli bağlantıya dokunman yeterli.',
+      passwordLabel: 'Şifre',
+      passwordPlaceholder: 'Şifreni yaz',
+      passwordHelp: 'Daha önce şifre belirlenmiş hesaplar için.',
+      passwordContinue: 'Şifreyle giriş yap',
+      passwordRequired: 'Şifreni yaz.',
+      invalidCredentials: 'E-posta adresi veya şifre hatalı.',
+      continue: 'Giriş yap / Hesap oluştur',
+      linkSent: 'Bağlantı gönderildi. E-posta kutunu kontrol et.',
+      emailRateLimit: 'Çok kısa sürede fazla giriş e-postası istendi. Yaklaşık bir saat sonra tekrar dene.',
+      invalidEmail: 'Geçerli bir e-posta adresi yaz.',
+      genericError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
+      security: {
+        eyebrow: 'Güvenli giriş',
+        title: 'Güvenlik kontrolü',
+        help: 'Devam etmek için kısa güvenlik kontrolünü tamamla.',
+        loading: 'Kontrol hazırlanıyor...',
+        cancel: 'Vazgeç',
+      },
+      securityError: 'Güvenlik kontrolü tamamlanamadı. Lütfen tekrar dene.',
+      privacy: 'Misafir olarak oynamaya devam edebilirsin. Hesap yalnızca çevrimiçi özellikler için gerekir.',
+      privacyPolicy: 'Gizlilik Politikası',
+      privacyPolicyA11y: 'Gizlilik politikasını aç',
+      unavailableTitle: 'Hesap sistemi hazırlanıyor',
+      unavailableText: 'Oyun misafir olarak çalışmaya devam ediyor. Supabase bağlantısı tamamlandığında giriş burada açılacak.',
+      buttonA11y: 'Hesap ve profil ekranını aç',
+      guestShort: 'Misafir',
+    },
+    friends: {
+      icon: 'A',
+      eyebrow: 'Çevrimiçi oyuncular',
+      title: 'Arkadaşlar',
+      close: 'Arkadaşlar ekranını kapat',
+      closeAction: 'Kapat',
+      settingsSubtitle: 'Oyuncuları bul ve arkadaş ekle',
+      loadingAccount: 'Oturum kontrol ediliyor...',
+      loading: 'Arkadaşların yükleniyor...',
+      unavailableTitle: 'Arkadaş sistemi hazırlanıyor',
+      unavailableText: 'Çevrimiçi bağlantı şu anda kullanılamıyor.',
+      accountRequiredTitle: 'Bu özellik için hesap gerekli',
+      accountRequiredText: 'Oyuncu bulmak ve arkadaş eklemek için hesabına giriş yap.',
+      signIn: 'Giriş yap',
+      profileRequiredTitle: 'Önce profilini tamamla',
+      profileRequiredText: 'Diğer oyuncuların seni bulabilmesi için bir kullanıcı adı seç.',
+      openProfile: 'Profili tamamla',
+      searchLabel: 'Oyuncu ara',
+      searchPlaceholder: '@kullanici_adi',
+      search: 'Ara',
+      searchHint: 'Kullanıcı adı veya görünen ad ile ara.',
+      invalidSearch: 'Aramak için en az 2 karakter yaz.',
+      searchError: 'Oyuncu araması yapılamadı. Lütfen tekrar dene.',
+      loadError: 'Arkadaşların şu anda yüklenemedi.',
+      actionError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
+      retry: 'Tekrar dene',
+      searchResults: 'Arama sonuçları',
+      incoming: 'Gelen istekler',
+      outgoing: 'Gönderilen istekler',
+      list: 'Arkadaşların',
+      emptySearch: 'Bu aramayla eşleşen oyuncu bulunamadı.',
+      emptyIncoming: 'Bekleyen arkadaşlık isteğin yok.',
+      emptyFriends: 'Henüz arkadaşın yok. Yukarıdan bir oyuncu ara.',
+      add: 'Ekle',
+      sent: 'Gönderildi',
+      accept: 'Kabul',
+      decline: 'Reddet',
+      cancel: 'İptal',
+      remove: 'Sil',
+      removeTitle: 'Arkadaşı sil',
+      removeMessage: (name) => `${name} arkadaşlarından silinsin mi?`,
+      block: 'Engelle',
+      blockTitle: 'Oyuncuyu engelle',
+      blockMessage: (name) =>
+        `${name} engellensin mi? Arkadaşlık, davet ve yarış bağlantıları kaldırılacak.`,
+      blockedTitle: 'Engellenen oyuncular',
+      blockedLoading: 'Engellenen oyuncular yükleniyor...',
+      blockedLoadError: 'Engellenen oyuncular şu anda yüklenemedi.',
+      emptyBlocked: 'Engellediğin oyuncu yok.',
+      unblock: 'Engeli kaldır',
+      report: 'Bildir',
+      reportEyebrow: 'Oyuncu güvenliği',
+      reportTitle: 'Oyuncuyu bildir',
+      closeReport: 'Oyuncu bildirimini kapat',
+      reportPrompt: 'İnceleme için en uygun nedeni seç.',
+      reportReasons: {
+        inappropriate_profile: 'Uygunsuz profil adı veya içeriği',
+        harassment: 'Taciz veya kötü davranış',
+        spam_cheating: 'Spam veya hile şüphesi',
+        other: 'Diğer güvenlik sorunu',
+      },
+      reportPrivacy: 'Bildirimin oyuncuya gösterilmez ve yalnız moderasyon amacıyla incelenir.',
+      reportReceivedTitle: 'Bildirim alındı',
+      reportReceived: 'Teşekkürler. Bildirimin inceleme sırasına eklendi.',
+      reportAlreadyReceived: 'Bu bildirimi bugün zaten aldık.',
+      reportErrorTitle: 'Bildirim gönderilemedi',
+      reportError: 'Bildirim şu anda gönderilemedi. Lütfen tekrar dene.',
+      reportRateLimited: 'Bugünkü bildirim sınırına ulaştın. Daha sonra tekrar dene.',
+      pendingRequests: (count) => `${count} bekleyen arkadaşlık isteği`,
+      openPlayerProfile: (name) => `${name} oyuncu profilini aç`,
+      profileEyebrow: 'Arkadaş profili',
+      profileTitle: 'Oyuncu özeti',
+      closeProfile: 'Arkadaş profilini kapat',
+      profileLoading: 'Oyuncu bilgileri yükleniyor...',
+      profileLoadError: 'Oyuncu profili şu anda yüklenemedi.',
+      weeklyScore: 'Bu hafta',
+      totalScore: 'Toplam puan',
+      gamesCompleted: 'Tamamlanan oyun',
+      bestScore: 'En iyi puan',
+      bestStreak: 'En iyi seri',
+      challenge: 'Meydan oku',
+      challengeLoading: 'Meydan okuma davetleri yükleniyor...',
+      challengeLoadError: 'Meydan okuma davetleri şu anda yüklenemedi.',
+      challengeActionError: 'Meydan okuma işlemi tamamlanamadı. Lütfen tekrar dene.',
+      challengeIncoming: 'Gelen meydan okumalar',
+      challengeOutgoing: 'Gönderilen meydan okumalar',
+      emptyChallengeIncoming: 'Bekleyen meydan okuma davetin yok.',
+      acceptChallenge: 'Kabul',
+      declineChallenge: 'Reddet',
+      cancelChallenge: 'İptal',
+      challengeSent: 'Meydan okuma daveti gönderildi',
+      activityTitle: 'Arkadaş etkinlikleri',
+      activityLoading: 'Arkadaş etkinlikleri yükleniyor...',
+      activityEmpty: 'Arkadaşların oyun tamamladığında burada görünecek.',
+      activityError: 'Arkadaş etkinlikleri şu anda yüklenemedi.',
+      activityCompleted: 'bir oyun tamamladı',
+      activitySummary: (mode, difficulty, score) =>
+        `${mode} · ${difficulty} · +${score} puan`,
+      activityNow: 'Şimdi',
+      activityMinutesAgo: (count) => `${count} dk önce`,
+      activityHoursAgo: (count) => `${count} sa önce`,
+      activityDaysAgo: (count) => `${count} gün önce`,
+      activityModes: {
+        normal: 'Antrenman',
+        daily: 'Günlük',
+        weekly: 'Haftalık',
+      },
+      activityDifficulties: {
+        paper: 'Örnek',
+        easy: 'Kolay',
+        medium: 'Orta',
+        hard: 'Zor',
+        master: 'Usta',
+        weekly: 'Meydan okuma',
+      },
+    },
+    notifications: {
+      buttonA11y: 'Bildirimleri aç',
+      pending: (count) => `${count} okunmamış bildirim`,
+      eyebrow: 'Çevrimiçi',
+      title: 'Bildirimler',
+      close: 'Bildirimler ekranını kapat',
+      closeAction: 'Kapat',
+      loadingAccount: 'Oturum kontrol ediliyor...',
+      loading: 'Bildirimler yükleniyor...',
+      unavailableTitle: 'Bildirimler kullanılamıyor',
+      unavailableText: 'Çevrimiçi bağlantı şu anda kullanılamıyor.',
+      accountRequiredTitle: 'Bu özellik için hesap gerekli',
+      accountRequiredText: 'Bildirimlerini görmek için hesabına giriş yap.',
+      signIn: 'Giriş yap',
+      loadError: 'Bildirimler şu anda yüklenemedi.',
+      actionError: 'Bildirim kaldırılamadı. Lütfen tekrar dene.',
+      retry: 'Tekrar dene',
+      emptyTitle: 'Yeni bildirim yok',
+      emptyText: 'Arkadaşlık, yarış ve hesap bildirimleri burada görünecek.',
+      friendRequest: (name) => `${name} sana arkadaşlık isteği gönderdi.`,
+      friendAccepted: (name) => `${name} arkadaşlık isteğini kabul etti.`,
+      challengeInvite: (name) => `${name} sana meydan okuma daveti gönderdi.`,
+      challengeAccepted: (name) => `${name} meydan okuma davetini kabul etti.`,
+      challengeReady: (name) => `${name} yarış için hazır.`,
+      challengeStarted: (name) => `${name} hazır. Yarış başlıyor!`,
+      systemActor: 'İşlem',
+      moderationProfileCleared: 'Profil adın güvenlik incelemesi sonrasında sıfırlandı. Yeni bir kullanıcı adı seçebilirsin.',
+      openFriends: 'Arkadaşları aç',
+      openChallenge: 'Meydan okumayı aç',
+      openAccount: 'Hesabı aç',
+      dismiss: 'Bildirimi kaldır',
+      newLabel: 'Yeni',
+      now: 'Şimdi',
+      minutesAgo: (count) => `${count} dk önce`,
+      hoursAgo: (count) => `${count} sa önce`,
+      daysAgo: (count) => `${count} gün önce`,
+      settingsTitle: 'Bildirimler',
+      settingsEnabled: 'Arkadaşlık ve yarış bildirimleri açık.',
+      settingsDisabled: 'Arkadaşlık ve yarış bildirimlerini aç.',
+      settingsDenied: 'Telefon ayarlarından bildirim izni ver.',
+      settingsAccount: 'Bildirimler için hesabına giriş yap.',
+      settingsUnavailable: 'Bu cihazda bildirim kullanılamıyor.',
+      settingsError: 'Bildirim ayarı güncellenemedi.',
+    },
+    moderation: {
+      icon: 'M',
+      eyebrow: 'Oyuncu güvenliği',
+      title: 'Moderasyon',
+      close: 'Moderasyon ekranını kapat',
+      settingsSubtitle: 'Oyuncu bildirimlerini incele',
+      loading: 'Bildirimler yükleniyor...',
+      loadError: 'Moderasyon listesi şu anda yüklenemedi.',
+      actionError: 'Moderasyon işlemi tamamlanamadı. Lütfen tekrar dene.',
+      historyError: 'İşlem geçmişi şu anda yüklenemedi.',
+      emptyTitle: 'Bu listede bildirim yok',
+      emptyText: 'Yeni oyuncu bildirimleri geldiğinde burada görünecek.',
+      statuses: {
+        pending: 'Bekleyen',
+        reviewing: 'İncelemede',
+        resolved: 'Çözüldü',
+        dismissed: 'Reddedildi',
+      },
+      reasons: {
+        inappropriate_profile: 'Uygunsuz profil adı veya içeriği',
+        harassment: 'Taciz veya kötü davranış',
+        spam_cheating: 'Spam veya hile şüphesi',
+        other: 'Diğer güvenlik sorunu',
+      },
+      resolutions: {
+        profile_cleared: 'Profil adı temizlendi',
+        handled_externally: 'Harici güvenlik işlemi tamamlandı',
+        no_violation: 'İhlal bulunmadı',
+        duplicate: 'Tekrarlanan bildirim',
+      },
+      actions: {
+        review: 'İnceleme başladı',
+        resolve: 'Çözüldü',
+        dismiss: 'Reddedildi',
+      },
+      review: 'İncelemeye al',
+      clearProfile: 'Profili temizle',
+      handledExternally: 'Harici işlem tamamlandı',
+      noViolation: 'İhlal yok',
+      duplicate: 'Tekrar',
+      showHistory: 'İşlem geçmişini göster',
+      hideHistory: 'İşlem geçmişini gizle',
+      noHistory: 'Henüz işlem kaydı yok.',
+      confirmTitle: 'Moderasyon kararını onayla',
+      confirmText: 'Bu karar sunucuda işlem geçmişine kaydedilecek.',
+      cancel: 'Vazgeç',
     },
     home: {
       title: 'İşlem',
@@ -341,9 +695,9 @@ const STRINGS = {
       challengeTitle: 'Meydan Okuma',
       challengeText: 'Arkadaşlarınla zamana karşı yarışma modu.',
       challengePageTitle: 'Meydan Okuma',
-      challengePageText: 'Arkadaşlarınla veya eşleşen oyuncularla aynı bulmacada yarışma sistemi hazırlanıyor.',
-      challengeStatusTitle: 'Gelişim aşamasında',
-      challengeStatusText: 'Oda kurma, arkadaş daveti ve canlı yarış akışı burada olacak. Şimdilik bu modu ayrı tutuyoruz.',
+      challengePageText: 'Arkadaşınla aynı bulmacayı aynı anda çöz. En hızlı tamamlayan yarışı kazanır.',
+      challengeStatusTitle: 'Arkadaşını davet et',
+      challengeStatusText: 'Arkadaşlar ekranından bir oyuncuya meydan oku. Davet kabul edildiğinde ortak yarış odanız burada açılır.',
       challengeDone: 'Bu hafta puan alındı',
       challengeReady: 'Haftalık hazır',
       challengeButton: 'Yakında',
@@ -353,8 +707,48 @@ const STRINGS = {
       roomCode: 'Oda kodu',
       roomWaiting: 'Oda hazır. Kodu arkadaşına gönder veya arama yapan oyuncuyu bekle.',
       roomMatched: (name) => `${name} katıldı. Yarışa başlayabilirsin.`,
-      roomStart: 'Yarışı başlat',
+      roomReadyTitle: 'Yarış odası hazır',
+      roomOpponent: 'Rakip',
+      roomReadyMessage: 'Hazır olduğunda düğmeye dokun. İki oyuncu da hazır olunca ortak geri sayım başlar.',
+      roomReadyDone: 'Hazırsın. Rakibinin katılması bekleniyor.',
+      roomCountdown: (count) => `Yarış ${count} saniye içinde başlıyor.`,
+      roomRaceActive: 'Yarış başladı. Ortak bulmacaya devam edebilirsin.',
+      roomRaceComplete: 'Yarış tamamlandı.',
+      roomProgress: (own, opponent, total) => `Sen ${own}/${total} · Rakip ${opponent}/${total}`,
+      roomOutcomeWon: 'Kazandın!',
+      roomOutcomeLost: 'Rakibin yarışı kazandı.',
+      roomOutcomeTie: 'Yarış berabere tamamlandı.',
+      roomOutcomeWaiting: 'Bitirdin. Rakibinin sonucu bekleniyor.',
+      roomActionError: 'Yarış durumu güncellenemedi. İnternet bağlantını kontrol edip tekrar dene.',
+      roomClosed: 'Yarış odası kapatıldı.',
+      roomInviteFriend: 'Arkadaşlarına git',
+      roomStart: 'Hazırım',
+      roomResume: 'Yarışa dön',
       roomReset: 'Odayı kapat',
+      historyTitle: 'Son yarışlar',
+      historyLoading: 'Yarış geçmişi yükleniyor.',
+      historyLoadError: 'Yarış geçmişi yüklenemedi.',
+      historyRetry: 'Tekrar dene',
+      historyEmpty: 'Tamamladığın yarışlar burada görünecek.',
+      historyMoves: (count) => `${count} işlem`,
+      historyOutcomes: {
+        won: { code: 'G', label: 'Galibiyet' },
+        lost: { code: 'M', label: 'Mağlubiyet' },
+        tie: { code: 'B', label: 'Berabere' },
+      },
+      leagueBoardTitle: 'Lig sıralaması',
+      leagueBoardPlayers: (count) => `${count} oyuncu`,
+      leagueBoardAccountRequired: 'Lig sıralaması için hesabına giriş yap.',
+      leagueBoardAccountAction: 'Giriş yap',
+      leagueBoardProfileRequired: 'Lig sıralamasına katılmak için kullanıcı adını belirle.',
+      leagueBoardProfileAction: 'Profili aç',
+      leagueBoardLoading: 'Lig sıralaması yükleniyor...',
+      leagueBoardError: 'Lig sıralaması şu anda yüklenemedi.',
+      leagueBoardRetry: 'Tekrar dene',
+      leagueBoardEmpty: 'Bu ligde henüz sıralama oluşmadı.',
+      leagueBoardYou: 'Sen',
+      leagueBoardRowLabel: (position, name, score) =>
+        `${position}. sıra, ${name}, ${score} puan`,
       weeklyStart: 'Haftalık bulmacayı oyna',
       tutorialTitle: 'Öğretici',
       tutorialText: 'Örnek bölümde sürükle-bırak, işlem kadranı ve ara sonuçları adım adım öğren.',
@@ -381,6 +775,7 @@ const STRINGS = {
       noNewBadges: 'Yeni rozet yok',
       next: 'Yeni oyun',
       close: 'Oyuna dön',
+      raceTitle: 'Yarış durumu',
     },
     badges: {
       first_win: {
@@ -561,6 +956,7 @@ const STRINGS = {
       normal: 'Normal game',
       daily: 'Daily puzzle',
       weekly: 'Weekly challenge',
+      challenge: 'Friend race',
     },
     status: {
       streak: 'Streak',
@@ -589,7 +985,10 @@ const STRINGS = {
       soundOff: 'Sound off',
       startDaily: 'Open daily puzzle',
       startWeekly: 'Open weekly challenge',
-      localLeaderboardNote: 'Local list for now. Friends require an online system.',
+      localLeaderboardNote: 'The guest board uses sample players on this device.',
+      friendLeaderboardNote: 'Only you and your accepted friends are shown.',
+      friendLeaderboardLoading: 'Loading friend scores...',
+      friendLeaderboardError: 'Friend scores could not be loaded right now.',
       you: 'You',
       gamesCompleted: 'Completed',
       totalScore: 'Total score',
@@ -599,6 +998,290 @@ const STRINGS = {
       bestStreak: 'Best streak',
       weeklyScore: 'This week',
       homeSubtitle: 'Show game modes',
+    },
+    account: {
+      icon: 'A',
+      eyebrow: 'Cloud account',
+      title: 'Account',
+      close: 'Close account screen',
+      loading: 'Checking session...',
+      signedIn: 'Signed in',
+      profile: 'Profile',
+      profileLoading: 'Loading profile...',
+      profileLoadError: 'Profile information could not be loaded right now.',
+      profileRetry: 'Try again',
+      editProfile: 'Edit',
+      saveProfile: 'Save profile',
+      profileSaved: 'Your profile was saved.',
+      profileSaveError: 'The profile could not be saved. Please try again.',
+      username: 'Username',
+      usernamePlaceholder: 'example_player',
+      usernameHelp: '3-24 characters: lowercase English letters, numbers, or underscore.',
+      usernameInvalid: 'Enter a valid username.',
+      usernameTaken: 'This username is already used by another player.',
+      displayName: 'Display name',
+      displayNamePlaceholder: 'Your name or player name',
+      displayNameInvalid: 'The display name can contain up to 40 characters.',
+      profileContentNotAllowed:
+        'This profile name cannot be used. Please choose another name.',
+      notSet: 'Not set',
+      cloudReady: 'Cloud sync ready',
+      cloudText: 'New game results are safely synced to this account.',
+      cloudStats: 'Cloud statistics',
+      statsLoading: 'Loading statistics...',
+      statsError: 'Cloud statistics could not be loaded right now.',
+      totalScore: 'Total score',
+      completedGames: 'Completed games',
+      solvedTargets: 'Solved targets',
+      currentStreak: 'Current streak',
+      signOut: 'Sign out',
+      deleteTitle: 'Delete account',
+      deleteText: 'Your cloud scores, streak, and profile data will be permanently deleted with your account.',
+      deleteAccount: 'Delete my account',
+      deleteConfirmText: 'This cannot be undone. Are you sure you want to permanently delete your account and cloud data?',
+      cancel: 'Cancel',
+      deleteForever: 'Delete permanently',
+      deleteError: 'The account could not be deleted. Check your internet connection and try again.',
+      guestTitle: 'Keep your progress with you',
+      guestText: 'Sign in with your email or create a free account to protect your scores and streak.',
+      emailLabel: 'Email',
+      emailPlaceholder: 'name@example.com',
+      magicLinkMethod: 'Email link',
+      passwordMethod: 'Password',
+      magicLinkHelp: 'No password needed. Tap the secure link sent to your email.',
+      passwordLabel: 'Password',
+      passwordPlaceholder: 'Enter your password',
+      passwordHelp: 'For accounts that already have a password.',
+      passwordContinue: 'Sign in with password',
+      passwordRequired: 'Enter your password.',
+      invalidCredentials: 'The email address or password is incorrect.',
+      continue: 'Sign in / Create account',
+      linkSent: 'Link sent. Check your email inbox.',
+      emailRateLimit: 'Too many sign-in emails were requested. Please try again in about an hour.',
+      invalidEmail: 'Enter a valid email address.',
+      genericError: 'The action could not be completed. Please try again.',
+      security: {
+        eyebrow: 'Secure sign-in',
+        title: 'Security check',
+        help: 'Complete the brief security check to continue.',
+        loading: 'Preparing verification...',
+        cancel: 'Cancel',
+      },
+      securityError: 'The security check could not be completed. Please try again.',
+      privacy: 'You can keep playing as a guest. An account is only required for online features.',
+      privacyPolicy: 'Privacy Policy',
+      privacyPolicyA11y: 'Open the privacy policy',
+      unavailableTitle: 'Accounts are being prepared',
+      unavailableText: 'The game still works as a guest. Sign-in will become available here when Supabase is connected.',
+      buttonA11y: 'Open account and profile',
+      guestShort: 'Guest',
+    },
+    friends: {
+      icon: 'F',
+      eyebrow: 'Online players',
+      title: 'Friends',
+      close: 'Close friends screen',
+      closeAction: 'Close',
+      settingsSubtitle: 'Find players and add friends',
+      loadingAccount: 'Checking session...',
+      loading: 'Loading friends...',
+      unavailableTitle: 'Friends are being prepared',
+      unavailableText: 'The online connection is unavailable right now.',
+      accountRequiredTitle: 'An account is required',
+      accountRequiredText: 'Sign in to find players and add friends.',
+      signIn: 'Sign in',
+      profileRequiredTitle: 'Complete your profile first',
+      profileRequiredText: 'Choose a username so other players can find you.',
+      openProfile: 'Complete profile',
+      searchLabel: 'Find a player',
+      searchPlaceholder: '@username',
+      search: 'Search',
+      searchHint: 'Search by username or display name.',
+      invalidSearch: 'Enter at least 2 characters to search.',
+      searchError: 'Player search failed. Please try again.',
+      loadError: 'Your friends could not be loaded right now.',
+      actionError: 'The action could not be completed. Please try again.',
+      retry: 'Try again',
+      searchResults: 'Search results',
+      incoming: 'Incoming requests',
+      outgoing: 'Sent requests',
+      list: 'Your friends',
+      emptySearch: 'No players matched this search.',
+      emptyIncoming: 'You have no pending friend requests.',
+      emptyFriends: 'No friends yet. Search for a player above.',
+      add: 'Add',
+      sent: 'Sent',
+      accept: 'Accept',
+      decline: 'Decline',
+      cancel: 'Cancel',
+      remove: 'Remove',
+      removeTitle: 'Remove friend',
+      removeMessage: (name) => `Remove ${name} from your friends?`,
+      block: 'Block',
+      blockTitle: 'Block player',
+      blockMessage: (name) =>
+        `Block ${name}? Friendship, invitations, and active races will be removed.`,
+      blockedTitle: 'Blocked players',
+      blockedLoading: 'Loading blocked players...',
+      blockedLoadError: 'Blocked players could not be loaded right now.',
+      emptyBlocked: 'You have not blocked any players.',
+      unblock: 'Unblock',
+      report: 'Report',
+      reportEyebrow: 'Player safety',
+      reportTitle: 'Report player',
+      closeReport: 'Close player report',
+      reportPrompt: 'Choose the most appropriate reason for review.',
+      reportReasons: {
+        inappropriate_profile: 'Inappropriate profile name or content',
+        harassment: 'Harassment or abusive behavior',
+        spam_cheating: 'Spam or suspected cheating',
+        other: 'Another safety concern',
+      },
+      reportPrivacy: 'Your report is not shown to the player and is reviewed only for moderation.',
+      reportReceivedTitle: 'Report received',
+      reportReceived: 'Thank you. Your report was added to the review queue.',
+      reportAlreadyReceived: 'We already received this report today.',
+      reportErrorTitle: 'Report not sent',
+      reportError: 'The report could not be sent right now. Please try again.',
+      reportRateLimited: 'You reached today’s report limit. Please try again later.',
+      pendingRequests: (count) => `${count} pending friend requests`,
+      openPlayerProfile: (name) => `Open ${name}'s player profile`,
+      profileEyebrow: 'Friend profile',
+      profileTitle: 'Player summary',
+      closeProfile: 'Close friend profile',
+      profileLoading: 'Loading player information...',
+      profileLoadError: 'The player profile could not be loaded right now.',
+      weeklyScore: 'This week',
+      totalScore: 'Total score',
+      gamesCompleted: 'Games completed',
+      bestScore: 'Best score',
+      bestStreak: 'Best streak',
+      challenge: 'Challenge',
+      challengeLoading: 'Loading challenge invitations...',
+      challengeLoadError: 'Challenge invitations could not be loaded right now.',
+      challengeActionError: 'The challenge action could not be completed. Please try again.',
+      challengeIncoming: 'Incoming challenges',
+      challengeOutgoing: 'Sent challenges',
+      emptyChallengeIncoming: 'You have no pending challenge invitations.',
+      acceptChallenge: 'Accept',
+      declineChallenge: 'Decline',
+      cancelChallenge: 'Cancel',
+      challengeSent: 'Challenge invitation sent',
+      activityTitle: 'Friend activity',
+      activityLoading: 'Loading friend activity...',
+      activityEmpty: 'Completed games from your friends will appear here.',
+      activityError: 'Friend activity could not be loaded right now.',
+      activityCompleted: 'completed a game',
+      activitySummary: (mode, difficulty, score) =>
+        `${mode} · ${difficulty} · +${score} points`,
+      activityNow: 'Now',
+      activityMinutesAgo: (count) => `${count}m ago`,
+      activityHoursAgo: (count) => `${count}h ago`,
+      activityDaysAgo: (count) => `${count}d ago`,
+      activityModes: {
+        normal: 'Training',
+        daily: 'Daily',
+        weekly: 'Weekly',
+      },
+      activityDifficulties: {
+        paper: 'Example',
+        easy: 'Easy',
+        medium: 'Medium',
+        hard: 'Hard',
+        master: 'Master',
+        weekly: 'Challenge',
+      },
+    },
+    notifications: {
+      buttonA11y: 'Open notifications',
+      pending: (count) => `${count} unread notifications`,
+      eyebrow: 'Online',
+      title: 'Notifications',
+      close: 'Close notifications screen',
+      closeAction: 'Close',
+      loadingAccount: 'Checking session...',
+      loading: 'Loading notifications...',
+      unavailableTitle: 'Notifications are unavailable',
+      unavailableText: 'The online connection is unavailable right now.',
+      accountRequiredTitle: 'An account is required',
+      accountRequiredText: 'Sign in to see your notifications.',
+      signIn: 'Sign in',
+      loadError: 'Notifications could not be loaded right now.',
+      actionError: 'The notification could not be removed. Please try again.',
+      retry: 'Try again',
+      emptyTitle: 'No new notifications',
+      emptyText: 'Friend, race, and account notifications will appear here.',
+      friendRequest: (name) => `${name} sent you a friend request.`,
+      friendAccepted: (name) => `${name} accepted your friend request.`,
+      challengeInvite: (name) => `${name} sent you a challenge invitation.`,
+      challengeAccepted: (name) => `${name} accepted your challenge invitation.`,
+      challengeReady: (name) => `${name} is ready to race.`,
+      challengeStarted: (name) => `${name} is ready. The race is starting!`,
+      systemActor: 'İşlem',
+      moderationProfileCleared: 'Your profile labels were reset after a safety review. You can choose a new username.',
+      openFriends: 'Open friends',
+      openChallenge: 'Open challenge',
+      openAccount: 'Open account',
+      dismiss: 'Dismiss notification',
+      newLabel: 'New',
+      now: 'Now',
+      minutesAgo: (count) => `${count}m ago`,
+      hoursAgo: (count) => `${count}h ago`,
+      daysAgo: (count) => `${count}d ago`,
+      settingsTitle: 'Notifications',
+      settingsEnabled: 'Friend and race notifications are on.',
+      settingsDisabled: 'Turn on friend and race notifications.',
+      settingsDenied: 'Allow notifications in device settings.',
+      settingsAccount: 'Sign in to use notifications.',
+      settingsUnavailable: 'Notifications are unavailable on this device.',
+      settingsError: 'The notification setting could not be updated.',
+    },
+    moderation: {
+      icon: 'M',
+      eyebrow: 'Player safety',
+      title: 'Moderation',
+      close: 'Close moderation screen',
+      settingsSubtitle: 'Review player reports',
+      loading: 'Loading reports...',
+      loadError: 'The moderation list could not be loaded right now.',
+      actionError: 'The moderation action could not be completed. Please try again.',
+      historyError: 'The action history could not be loaded right now.',
+      emptyTitle: 'No reports in this list',
+      emptyText: 'New player reports will appear here.',
+      statuses: {
+        pending: 'Pending',
+        reviewing: 'Reviewing',
+        resolved: 'Resolved',
+        dismissed: 'Dismissed',
+      },
+      reasons: {
+        inappropriate_profile: 'Inappropriate profile name or content',
+        harassment: 'Harassment or abusive behavior',
+        spam_cheating: 'Spam or suspected cheating',
+        other: 'Another safety concern',
+      },
+      resolutions: {
+        profile_cleared: 'Profile labels cleared',
+        handled_externally: 'External safety action completed',
+        no_violation: 'No violation found',
+        duplicate: 'Duplicate report',
+      },
+      actions: {
+        review: 'Review started',
+        resolve: 'Resolved',
+        dismiss: 'Dismissed',
+      },
+      review: 'Start review',
+      clearProfile: 'Clear profile',
+      handledExternally: 'External action complete',
+      noViolation: 'No violation',
+      duplicate: 'Duplicate',
+      showHistory: 'Show action history',
+      hideHistory: 'Hide action history',
+      noHistory: 'No action has been recorded yet.',
+      confirmTitle: 'Confirm moderation decision',
+      confirmText: 'This decision will be recorded in the server audit history.',
+      cancel: 'Cancel',
     },
     home: {
       title: 'İşlem',
@@ -625,9 +1308,9 @@ const STRINGS = {
       challengeTitle: 'Challenge',
       challengeText: 'Race friends against the clock.',
       challengePageTitle: 'Challenge',
-      challengePageText: 'A live race system for friends or matched players is being prepared.',
-      challengeStatusTitle: 'In development',
-      challengeStatusText: 'Room creation, friend invites, and live races will live here. For now, this mode is kept separate.',
+      challengePageText: 'Solve the same puzzle at the same time as a friend. The fastest finisher wins.',
+      challengeStatusTitle: 'Invite a friend',
+      challengeStatusText: 'Challenge a player from the friends screen. Your shared race room opens here when the invitation is accepted.',
       challengeDone: 'Scored this week',
       challengeReady: 'Weekly ready',
       challengeButton: 'Coming soon',
@@ -637,8 +1320,49 @@ const STRINGS = {
       roomCode: 'Room code',
       roomWaiting: 'Room ready. Send the code to a friend or wait for a searching player.',
       roomMatched: (name) => `${name} joined. You can start the race.`,
-      roomStart: 'Start race',
+      roomReadyTitle: 'Race room ready',
+      roomOpponent: 'Opponent',
+      roomReadyMessage: 'Tap ready when you are set. A shared countdown starts after both players are ready.',
+      roomReadyDone: 'You are ready. Waiting for your opponent.',
+      roomCountdown: (count) => `Race starts in ${count} seconds.`,
+      roomRaceActive: 'The race has started. Continue to the shared puzzle.',
+      roomRaceComplete: 'The race is complete.',
+      roomProgress: (own, opponent, total) => `You ${own}/${total} · Opponent ${opponent}/${total}`,
+      roomOutcomeWon: 'You won!',
+      roomOutcomeLost: 'Your opponent won the race.',
+      roomOutcomeTie: 'The race ended in a tie.',
+      roomOutcomeWaiting: 'You finished. Waiting for your opponent.',
+      roomActionError: 'The race status could not be updated. Check your connection and try again.',
+      roomClosed: 'The race room was closed.',
+      roomInviteFriend: 'Open friends',
+      roomStart: 'I am ready',
+      roomResume: 'Return to race',
       roomReset: 'Close room',
+      historyTitle: 'Recent races',
+      historyLoading: 'Loading race history.',
+      historyLoadError: 'Race history could not be loaded.',
+      historyRetry: 'Try again',
+      historyEmpty: 'Your completed races will appear here.',
+      historyMoves: (count) => `${count} moves`,
+      historyOutcomes: {
+        won: { code: 'W', label: 'Win' },
+        lost: { code: 'L', label: 'Loss' },
+        tie: { code: 'T', label: 'Tie' },
+      },
+      leagueBoardTitle: 'League standings',
+      leagueBoardPlayers: (count) =>
+        count === 1 ? '1 player' : `${count} players`,
+      leagueBoardAccountRequired: 'Sign in to view the league standings.',
+      leagueBoardAccountAction: 'Sign in',
+      leagueBoardProfileRequired: 'Choose a username to join the league standings.',
+      leagueBoardProfileAction: 'Open profile',
+      leagueBoardLoading: 'Loading league standings...',
+      leagueBoardError: 'League standings could not be loaded right now.',
+      leagueBoardRetry: 'Try again',
+      leagueBoardEmpty: 'No standings have formed in this league yet.',
+      leagueBoardYou: 'You',
+      leagueBoardRowLabel: (position, name, score) =>
+        `Rank ${position}, ${name}, ${score} points`,
       weeklyStart: 'Play weekly puzzle',
       tutorialTitle: 'Tutorial',
       tutorialText: 'Learn dragging, the operation dial, and result numbers step by step in the example mode.',
@@ -665,6 +1389,7 @@ const STRINGS = {
       noNewBadges: 'No new badges',
       next: 'New game',
       close: 'Back to game',
+      raceTitle: 'Race status',
     },
     badges: {
       first_win: {
@@ -751,18 +1476,55 @@ export default function App() {
   const [homeVisible, setHomeVisible] = useState(true);
   const [homePage, setHomePage] = useState('home');
   const [challengeRoom, setChallengeRoom] = useState(null);
+  const [challengeHistory, setChallengeHistory] = useState([]);
+  const [challengeHistoryLoading, setChallengeHistoryLoading] = useState(false);
+  const [challengeHistoryError, setChallengeHistoryError] = useState(false);
+  const [challengeActionBusy, setChallengeActionBusy] = useState(false);
+  const [challengeCountdown, setChallengeCountdown] = useState(null);
+  const [challengeError, setChallengeError] = useState('');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [streakVisible, setStreakVisible] = useState(false);
+  const [accountVisible, setAccountVisible] = useState(false);
+  const [friendsVisible, setFriendsVisible] = useState(false);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [moderationVisible, setModerationVisible] = useState(false);
+  const [moderatorRole, setModeratorRole] = useState(null);
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [profile, setProfile] = useState(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
+  const [friendWeeklyLeaderboard, setFriendWeeklyLeaderboard] = useState(null);
+  const [friendLeaderboardLoading, setFriendLeaderboardLoading] = useState(false);
+  const [friendLeaderboardError, setFriendLeaderboardError] = useState('');
+  const [weeklyLeagueLeaderboard, setWeeklyLeagueLeaderboard] = useState([]);
+  const [weeklyLeagueLoading, setWeeklyLeagueLoading] = useState(false);
+  const [weeklyLeagueError, setWeeklyLeagueError] = useState(false);
+  const [incomingFriendRequestCount, setIncomingFriendRequestCount] =
+    useState(0);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [pushStatus, setPushStatus] = useState('loading');
+  const [pushBusy, setPushBusy] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [completionSummary, setCompletionSummary] = useState(null);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [hintUseCount, setHintUseCount] = useState(0);
   const tileRefs = useRef({});
   const rootRef = useRef(null);
   const rootOffsetRef = useRef({ x: 0, y: 0 });
   const dragStateRef = useRef(null);
   const operationLockRef = useRef(false);
   const timerStartRef = useRef(null);
+  const progressRef = useRef(progress);
+  const activeUserIdRef = useRef(session?.user?.id || null);
+  const cloudRefreshIdRef = useRef(0);
+  const challengeAutoOpenedRef = useRef(null);
+  const challengeLaunchRef = useRef(null);
+  const pendingPushActionRef = useRef(null);
+  progressRef.current = progress;
+  activeUserIdRef.current = session?.user?.id || null;
 
   const metrics = useMemo(
     () => getResponsiveMetrics(width, height, game.boardSize),
@@ -785,15 +1547,555 @@ export default function App() {
   const weeklyDone = Boolean(progress.completedWeeklyKeys[weekKey]);
   const weeklyScore = progress.weeklyScores[weekKey] || 0;
   const currentLeague = getLeagueForScore(weeklyScore);
-  const weeklyLeaderboard = useMemo(
+  const localWeeklyLeaderboard = useMemo(
     () => makeWeeklyLeaderboard(weeklyScore, weekKey, t),
     [t, weekKey, weeklyScore],
+  );
+  const leaderboardOnline = Boolean(session?.user?.id);
+  const weeklyLeaderboard = useMemo(() => {
+    if (!leaderboardOnline) {
+      return localWeeklyLeaderboard;
+    }
+
+    if (!friendWeeklyLeaderboard?.length) {
+      return [
+        {
+          isUser: true,
+          name:
+            profile?.display_name ||
+            (profile?.username ? `@${profile.username}` : t.settings.you),
+          position: 1,
+          score: weeklyScore,
+        },
+      ];
+    }
+
+    return friendWeeklyLeaderboard.map((row) => ({
+      isUser: row.is_current_user,
+      name:
+        row.display_name ||
+        (row.username ? `@${row.username}` : t.settings.you),
+      position: row.position,
+      score: row.score,
+    }));
+  }, [
+    friendWeeklyLeaderboard,
+    leaderboardOnline,
+    localWeeklyLeaderboard,
+    profile?.display_name,
+    profile?.username,
+    t.settings.you,
+    weeklyScore,
+  ]);
+
+  const refreshIncomingFriendRequestCount = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setIncomingFriendRequestCount(0);
+      return;
+    }
+
+    try {
+      const count = await loadIncomingFriendRequestCount();
+      if (activeUserIdRef.current === userId) {
+        setIncomingFriendRequestCount(count);
+      }
+    } catch {
+      // A notification refresh must not interrupt offline or guest play.
+    }
+  }, []);
+
+  const refreshUnreadNotificationCount = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+
+    try {
+      const count = await loadUnreadNotificationCount();
+      if (activeUserIdRef.current === userId) {
+        setUnreadNotificationCount(count);
+      }
+    } catch {
+      // Notification badges must not interrupt offline or guest play.
+    }
+  }, []);
+
+  const refreshChallengeHistory = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setChallengeHistory([]);
+      setChallengeHistoryLoading(false);
+      setChallengeHistoryError(false);
+      return [];
+    }
+
+    setChallengeHistoryLoading(true);
+    setChallengeHistoryError(false);
+    try {
+      const rows = await loadChallengeHistory();
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistory(rows);
+      }
+      return rows;
+    } catch {
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistoryError(true);
+      }
+      return [];
+    } finally {
+      if (activeUserIdRef.current === userId) {
+        setChallengeHistoryLoading(false);
+      }
+    }
+  }, []);
+
+  const refreshWeeklyLeagueLeaderboard = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setWeeklyLeagueLeaderboard([]);
+      setWeeklyLeagueLoading(false);
+      setWeeklyLeagueError(false);
+      return [];
+    }
+
+    setWeeklyLeagueLoading(true);
+    setWeeklyLeagueError(false);
+    try {
+      const rows = await loadWeeklyLeagueLeaderboard(weekKey);
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueLeaderboard(rows);
+      }
+      return rows;
+    } catch {
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueError(true);
+      }
+      return [];
+    } finally {
+      if (activeUserIdRef.current === userId) {
+        setWeeklyLeagueLoading(false);
+      }
+    }
+  }, [weekKey]);
+
+  const refreshChallengeRoom = useCallback(async (userId) => {
+    if (!userId || activeUserIdRef.current !== userId) {
+      setChallengeRoom(null);
+      return null;
+    }
+
+    try {
+      const room = await loadActiveChallengeRoom();
+      if (activeUserIdRef.current === userId) {
+        setChallengeRoom(room);
+      }
+      return room;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const refreshPushRegistration = useCallback(
+    async (userId, options = {}) => {
+      const { devicePushToken = null, silent = false } = options;
+      if (!userId || activeUserIdRef.current !== userId) {
+        setPushStatus('account_required');
+        return;
+      }
+
+      if (!silent) {
+        setPushStatus('loading');
+      }
+      try {
+        const result = await syncPushRegistration(language, devicePushToken);
+        if (activeUserIdRef.current === userId) {
+          setPushStatus(result.status);
+        }
+      } catch {
+        if (!silent && activeUserIdRef.current === userId) {
+          setPushStatus('error');
+        }
+      }
+    },
+    [language],
+  );
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setIncomingFriendRequestCount(0);
+      return;
+    }
+    refreshIncomingFriendRequestCount(userId);
+  }, [refreshIncomingFriendRequestCount, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setUnreadNotificationCount(0);
+      return;
+    }
+    refreshUnreadNotificationCount(userId);
+  }, [refreshUnreadNotificationCount, session?.user?.id]);
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+    if (!userId) {
+      setModeratorRole(null);
+      setModerationVisible(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    loadModeratorAccess()
+      .then((role) => {
+        if (active && activeUserIdRef.current === userId) {
+          setModeratorRole(role);
+        }
+      })
+      .catch(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setModeratorRole(null);
+          setModerationVisible(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setChallengeRoom(null);
+      setChallengeCountdown(null);
+      setChallengeError('');
+      return;
+    }
+    refreshChallengeRoom(userId);
+  }, [refreshChallengeRoom, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      setChallengeHistory([]);
+      setChallengeHistoryLoading(false);
+      setChallengeHistoryError(false);
+      return;
+    }
+    refreshChallengeHistory(userId);
+  }, [refreshChallengeHistory, session?.user?.id]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      !homeVisible ||
+      homePage !== 'stats' ||
+      !userId ||
+      !profile?.username
+    ) {
+      setWeeklyLeagueLeaderboard([]);
+      setWeeklyLeagueLoading(false);
+      setWeeklyLeagueError(false);
+      return;
+    }
+
+    refreshWeeklyLeagueLeaderboard(userId);
+  }, [
+    homePage,
+    homeVisible,
+    profile?.username,
+    refreshWeeklyLeagueLeaderboard,
+    session?.user?.id,
+    weeklyScore,
+  ]);
+
+  useEffect(() => {
+    if (authLoading) {
+      setPushStatus('loading');
+      return;
+    }
+    refreshPushRegistration(session?.user?.id || null);
+  }, [
+    authLoading,
+    refreshPushRegistration,
+    session?.user?.id,
+  ]);
+
+  const handleIncomingFriendRequestCountChange = useCallback(
+    (count) => {
+      setIncomingFriendRequestCount(count);
+      const userId = activeUserIdRef.current;
+      if (userId) {
+        refreshUnreadNotificationCount(userId);
+      }
+    },
+    [refreshUnreadNotificationCount],
+  );
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+
+    if (!settingsVisible || !userId) {
+      setFriendWeeklyLeaderboard(null);
+      setFriendLeaderboardLoading(false);
+      setFriendLeaderboardError('');
+      return () => {
+        active = false;
+      };
+    }
+
+    setFriendWeeklyLeaderboard(null);
+    setFriendLeaderboardLoading(true);
+    setFriendLeaderboardError('');
+    loadFriendWeeklyLeaderboard(weekKey)
+      .then((rows) => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendWeeklyLeaderboard(rows);
+        }
+      })
+      .catch(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendLeaderboardError(t.settings.friendLeaderboardError);
+        }
+      })
+      .finally(() => {
+        if (active && activeUserIdRef.current === userId) {
+          setFriendLeaderboardLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [
+    session?.user?.id,
+    settingsVisible,
+    t.settings.friendLeaderboardError,
+    weekKey,
+  ]);
+
+  const refreshCloudProgress = useCallback(
+    async (userId, { flushQueue = true } = {}) => {
+      if (!userId || activeUserIdRef.current !== userId) {
+        return null;
+      }
+
+      const refreshId = cloudRefreshIdRef.current + 1;
+      cloudRefreshIdRef.current = refreshId;
+
+      try {
+        if (flushQueue) {
+          await flushQueuedGameResults();
+        }
+
+        const cloudProgress = await loadPlayerCloudProgress(
+          userId,
+          getWeekKey(),
+        );
+        const hasPendingResults = await hasQueuedGameResults(userId);
+
+        if (
+          activeUserIdRef.current !== userId ||
+          cloudRefreshIdRef.current !== refreshId
+        ) {
+          return null;
+        }
+
+        const nextProgress = normalizeProgress(
+          reconcilePlayerProgress(progressRef.current, cloudProgress, {
+            authoritative: !hasPendingResults,
+          }),
+        );
+        progressRef.current = nextProgress;
+        setProgress(nextProgress);
+        await saveProgress(nextProgress, userId);
+        return nextProgress;
+      } catch {
+        return null;
+      }
+    },
+    [],
   );
 
   useEffect(() => {
     loadBestScores().then(setBestScores);
-    loadProgress().then(setProgress);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const userId = session?.user?.id;
+
+    setProfile(null);
+    setProfileLoadFailed(false);
+    if (!userId) {
+      setProfileLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setProfileLoading(true);
+    loadOwnProfile(userId)
+      .then((nextProfile) => {
+        if (active) {
+          setProfile(nextProfile);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setProfile(null);
+          setProfileLoadFailed(true);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setProfileLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [profileReloadKey, session?.user?.id]);
+
+  useEffect(() => {
+    let active = true;
+
+    getCurrentSession()
+      .then((currentSession) => {
+        if (active) {
+          setSession(currentSession);
+          setAuthLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuthLoading(false);
+        }
+      });
+
+    const unsubscribeAuth = subscribeToAuthChanges((nextSession) => {
+      if (active) {
+        setSession(nextSession);
+        setAuthLoading(false);
+      }
+    });
+
+    const processAuthUrl = (url) => {
+      handleAuthCallback(url)
+        .then((nextSession) => {
+          if (active && nextSession) {
+            setSession(nextSession);
+          }
+        })
+        .catch(() => {
+          // The account panel remains available for a fresh sign-in attempt.
+        });
+    };
+
+    Linking.getInitialURL()
+      .then((url) => {
+        if (url) {
+          processAuthUrl(url);
+        }
+      })
+      .catch(() => {});
+    const linkSubscription = Linking.addEventListener('url', ({ url }) => processAuthUrl(url));
+
+    return () => {
+      active = false;
+      unsubscribeAuth();
+      linkSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (authLoading) {
+      return undefined;
+    }
+
+    let active = true;
+    const userId = session?.user?.id || null;
+
+    const emptyProgress = normalizeProgress(DEFAULT_PROGRESS);
+    progressRef.current = emptyProgress;
+    setProgress(emptyProgress);
+
+    loadProgress(userId).then(async (storedProgress) => {
+      if (!active) {
+        return;
+      }
+
+      progressRef.current = storedProgress;
+      setProgress(storedProgress);
+
+      if (userId) {
+        await refreshCloudProgress(userId);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, refreshCloudProgress, session?.user?.id]);
+
+  useEffect(() => {
+    let timeoutId;
+
+    const refreshStreak = () => {
+      setProgress((currentProgress) => {
+        const nextProgress = normalizeProgress(currentProgress);
+        progressRef.current = nextProgress;
+        return nextProgress;
+      });
+    };
+    const scheduleNextDayRefresh = () => {
+      timeoutId = setTimeout(() => {
+        refreshStreak();
+        scheduleNextDayRefresh();
+      }, getMillisecondsUntilNextDay());
+    };
+
+    scheduleNextDayRefresh();
+    return () => clearTimeout(timeoutId);
+  }, []);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const refreshFromCloud = () => {
+      if (!userId) {
+        return;
+      }
+      refreshCloudProgress(userId);
+      refreshIncomingFriendRequestCount(userId);
+      refreshUnreadNotificationCount(userId);
+      refreshPushRegistration(userId);
+      refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
+    };
+
+    const appStateSubscription = AppState.addEventListener(
+      'change',
+      (nextState) => {
+        if (nextState === 'active') {
+          refreshFromCloud();
+        }
+      },
+    );
+
+    return () => appStateSubscription.remove();
+  }, [
+    refreshCloudProgress,
+    refreshChallengeHistory,
+    refreshChallengeRoom,
+    refreshIncomingFriendRequestCount,
+    refreshPushRegistration,
+    refreshUnreadNotificationCount,
+    session?.user?.id,
+  ]);
 
   useEffect(() => {
     if (game.difficulty !== 'paper') {
@@ -850,6 +2152,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -872,6 +2175,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -892,6 +2196,7 @@ export default function App() {
     setDragState(null);
     dragStateRef.current = null;
     setCompletionSummary(null);
+    setHintUseCount(0);
     setSettingsVisible(false);
     setHomeVisible(false);
     playSound('tap');
@@ -902,6 +2207,212 @@ export default function App() {
       mode: MODE_WEEKLY,
     }));
   }, [playSound, t, tutorialStepCount, weekKey]);
+
+  const launchChallengeGame = useCallback(async (room) => {
+    const userId = activeUserIdRef.current;
+    const startedAt = Date.parse(room?.started_at || '');
+    if (
+      !userId ||
+      !room?.room_id ||
+      !room?.puzzle_seed ||
+      room.status !== 'active' ||
+      !Number.isFinite(startedAt) ||
+      Date.now() < startedAt ||
+      challengeLaunchRef.current === room.room_id
+    ) {
+      return;
+    }
+
+    challengeLaunchRef.current = room.room_id;
+    try {
+      const storedGame = await loadChallengeGame(userId, room);
+      const nextGame =
+        storedGame ||
+        createGame(
+          'hard',
+          makeChallengePuzzle(room.puzzle_seed),
+          t,
+          {
+            challengeKey: room.room_id,
+            challengePuzzleSeed: room.puzzle_seed,
+            challengeRoomId: room.room_id,
+            mode: MODE_CHALLENGE,
+          },
+        );
+
+      timerStartRef.current = startedAt;
+      setElapsedSeconds(getElapsedSeconds(startedAt));
+      setOperation(null);
+      setOperationError('');
+      setHint(null);
+      setDragState(null);
+      dragStateRef.current = null;
+      setCompletionSummary(null);
+      setHintUseCount(0);
+      setSettingsVisible(false);
+      setHomeVisible(false);
+      setTutorialStep(tutorialStepCount);
+      setUndoStack([]);
+      setGame(nextGame);
+    } finally {
+      challengeLaunchRef.current = null;
+    }
+  }, [t, tutorialStepCount]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const roomId = challengeRoom?.room_id;
+    if (
+      !userId ||
+      !roomId ||
+      !['ready', 'active'].includes(challengeRoom.status)
+    ) {
+      return undefined;
+    }
+
+    const intervalId = setInterval(() => {
+      refreshChallengeRoom(userId);
+    }, CHALLENGE_POLL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    refreshChallengeRoom,
+    session?.user?.id,
+  ]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (userId && challengeRoom?.status === 'completed') {
+      refreshChallengeHistory(userId);
+    }
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    refreshChallengeHistory,
+    session?.user?.id,
+  ]);
+
+  useEffect(() => {
+    if (
+      homeVisible &&
+      homePage === 'home' &&
+      challengeRoom?.room_id &&
+      ['ready', 'active'].includes(challengeRoom.status) &&
+      challengeAutoOpenedRef.current !== challengeRoom.room_id
+    ) {
+      challengeAutoOpenedRef.current = challengeRoom.room_id;
+      setHomePage('challenge');
+    }
+    if (!challengeRoom?.room_id) {
+      challengeAutoOpenedRef.current = null;
+    }
+  }, [
+    challengeRoom?.room_id,
+    challengeRoom?.status,
+    homePage,
+    homeVisible,
+  ]);
+
+  useEffect(() => {
+    const startedAt = Date.parse(challengeRoom?.started_at || '');
+    if (
+      challengeRoom?.status !== 'active' ||
+      !challengeRoom.own_ready ||
+      challengeRoom.own_completed_at ||
+      !Number.isFinite(startedAt)
+    ) {
+      setChallengeCountdown(null);
+      return undefined;
+    }
+
+    const updateCountdown = () => {
+      const seconds = Math.max(
+        0,
+        Math.ceil((startedAt - Date.now()) / 1000),
+      );
+      setChallengeCountdown(seconds);
+
+      if (seconds === 0) {
+        if (homeVisible && homePage === 'challenge') {
+          launchChallengeGame(challengeRoom);
+        }
+      }
+    };
+
+    updateCountdown();
+    const intervalId = setInterval(updateCountdown, 250);
+    return () => clearInterval(intervalId);
+  }, [
+    challengeRoom,
+    homePage,
+    homeVisible,
+    launchChallengeGame,
+  ]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      !userId ||
+      game.mode !== MODE_CHALLENGE ||
+      !game.challengeRoomId
+    ) {
+      return;
+    }
+
+    saveChallengeGame(userId, game).catch(() => {});
+  }, [game, session?.user?.id]);
+
+  useEffect(() => {
+    const startedAt = Date.parse(challengeRoom?.started_at || '');
+    if (
+      game.mode !== MODE_CHALLENGE ||
+      !game.challengeRoomId ||
+      game.history.length === 0 ||
+      challengeRoom?.status !== 'active' ||
+      !Number.isFinite(startedAt) ||
+      Date.now() < startedAt
+    ) {
+      return;
+    }
+
+    syncChallengeOperations(
+      game.challengeRoomId,
+      game.history,
+    ).catch(() => {
+      setChallengeError(t.home.roomActionError);
+    });
+  }, [
+    challengeRoom?.started_at,
+    challengeRoom?.status,
+    game.challengeRoomId,
+    game.history,
+    game.mode,
+    t.home.roomActionError,
+  ]);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (
+      userId &&
+      !challengeRoom &&
+      game.mode === MODE_CHALLENGE &&
+      game.challengeRoomId
+    ) {
+      clearChallengeGame(userId, game.challengeRoomId).catch(() => {});
+      setCompletionSummary(null);
+      setHomePage('challenge');
+      setHomeVisible(true);
+      setChallengeError(t.home.roomClosed);
+    }
+  }, [
+    challengeRoom,
+    game.challengeRoomId,
+    game.mode,
+    session?.user?.id,
+    t.home.roomClosed,
+  ]);
 
   const advanceTutorial = useCallback(() => {
     playSound('tap');
@@ -965,6 +2476,7 @@ export default function App() {
     const nextHint = randomItem(nextCandidates.length > 0 ? nextCandidates : candidates);
 
     setHint(nextHint);
+    setHintUseCount((currentCount) => currentCount + 1);
     setOperation(null);
     setOperationError('');
     setDragState(null);
@@ -1093,6 +2605,7 @@ export default function App() {
         {
           a: a.value,
           b: b.value,
+          id: resultTile.id,
           op,
           result: result.value,
           hit: hitTarget,
@@ -1119,15 +2632,98 @@ export default function App() {
     }
     playSound(finalGame.complete ? 'complete' : hitTarget ? 'target' : 'result');
 
+    if (
+      finalGame.mode === MODE_CHALLENGE &&
+      finalGame.challengeRoomId
+    ) {
+      const solvedTargets = finalGame.targets.filter(
+        (target) => target.solved,
+      ).length;
+      setChallengeRoom((currentRoom) =>
+        currentRoom?.room_id === finalGame.challengeRoomId
+          ? {
+              ...currentRoom,
+              own_moves: finalGame.steps,
+              own_solved_targets: solvedTargets,
+            }
+          : currentRoom,
+      );
+      syncChallengeOperations(
+        finalGame.challengeRoomId,
+        finalGame.history,
+      )
+        .then((serverProgress) => {
+          if (!serverProgress) {
+            return;
+          }
+          setChallengeRoom((currentRoom) =>
+            currentRoom?.room_id === finalGame.challengeRoomId
+              ? {
+                  ...currentRoom,
+                  own_moves: serverProgress.moves,
+                  own_solved_targets: serverProgress.solved_targets,
+                }
+              : currentRoom,
+          );
+        })
+        .catch(() => {
+          setChallengeError(t.home.roomActionError);
+        });
+    }
+
     if (finalGame.complete) {
       const finalScore = calculateScore(finalGame);
       const completion = recordGameCompletion(progress, finalGame, finalScore);
       saveBestScore(finalGame.difficulty, completion.summary.score, bestScores, setBestScores);
+      progressRef.current = completion.progress;
       setProgress(completion.progress);
-      saveProgress(completion.progress);
+      saveProgress(completion.progress, session?.user?.id || null);
       setCompletionSummary(completion.summary);
+      const userId = session?.user?.id || null;
+      submitGameResult(
+        buildGameResultPayload({
+          game:
+            finalGame.mode === MODE_CHALLENGE
+              ? { ...finalGame, mode: MODE_NORMAL }
+              : finalGame,
+          score: finalScore,
+          awardedScore: completion.summary.score,
+          durationSeconds: getElapsedSeconds(timerStartRef.current),
+          hintUsedCount: hintUseCount,
+          language,
+        }),
+      )
+        .then((result) => {
+          if (userId && result.status === 'synced') {
+            refreshCloudProgress(userId, { flushQueue: false });
+          }
+        })
+        .catch(() => {
+          // Cloud sync should never block or interrupt local gameplay.
+        });
+
+      if (
+        finalGame.mode === MODE_CHALLENGE &&
+        finalGame.challengeRoomId
+      ) {
+        submitChallengeResult(
+          finalGame.challengeRoomId,
+          finalGame.history,
+        )
+          .then((room) => {
+            if (room) {
+              setChallengeRoom(room);
+              if (room.status === 'completed' && userId) {
+                refreshChallengeHistory(userId);
+              }
+            }
+          })
+          .catch(() => {
+            setChallengeError(t.home.roomActionError);
+          });
+      }
     }
-  }, [bestScores, game, operation, playSound, progress, t]);
+  }, [bestScores, game, hintUseCount, language, operation, playSound, progress, refreshChallengeHistory, refreshCloudProgress, session?.user?.id, t]);
 
   const swapOperationNumbers = useCallback(() => {
     setOperation((currentOperation) => {
@@ -1169,10 +2765,116 @@ export default function App() {
     setStreakVisible(false);
   }, [playSound]);
 
+  const openAccount = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setFriendsVisible(false);
+    setModerationVisible(false);
+    setNotificationsVisible(false);
+    setAccountVisible(true);
+  }, [playSound]);
+
+  const closeAccount = useCallback(() => {
+    playSound('tap');
+    setAccountVisible(false);
+  }, [playSound]);
+
+  const openFriends = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setModerationVisible(false);
+    setNotificationsVisible(false);
+    setFriendsVisible(true);
+  }, [playSound]);
+
+  const closeFriends = useCallback(() => {
+    playSound('tap');
+    setFriendsVisible(false);
+  }, [playSound]);
+
+  const openNotifications = useCallback(() => {
+    playSound('tap');
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setFriendsVisible(false);
+    setModerationVisible(false);
+    setNotificationsVisible(true);
+  }, [playSound]);
+
+  const closeNotifications = useCallback(() => {
+    playSound('tap');
+    setNotificationsVisible(false);
+  }, [playSound]);
+
+  const openModeration = useCallback(() => {
+    if (!moderatorRole) {
+      return;
+    }
+    playSound('tap');
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setFriendsVisible(false);
+    setNotificationsVisible(false);
+    setModerationVisible(true);
+  }, [moderatorRole, playSound]);
+
+  const closeModeration = useCallback(() => {
+    playSound('tap');
+    setModerationVisible(false);
+  }, [playSound]);
+
+  const togglePushNotifications = useCallback(async () => {
+    if (pushBusy) {
+      return;
+    }
+    if (!session?.user?.id) {
+      openAccount();
+      return;
+    }
+    if (pushStatus === 'denied') {
+      await Linking.openSettings().catch(() => {});
+      return;
+    }
+    if (pushStatus === 'unavailable') {
+      return;
+    }
+
+    setPushBusy(true);
+    try {
+      const result =
+        pushStatus === 'enabled'
+          ? await disablePushNotifications()
+          : await enablePushNotifications(language);
+      setPushStatus(result.status);
+    } catch {
+      setPushStatus('error');
+    } finally {
+      setPushBusy(false);
+    }
+  }, [
+    language,
+    openAccount,
+    pushBusy,
+    pushStatus,
+    session?.user?.id,
+  ]);
+
   const closeCompletion = useCallback(() => {
     playSound('tap');
     setCompletionSummary(null);
   }, [playSound]);
+
+  const returnToChallengePage = useCallback(() => {
+    playSound('tap');
+    setCompletionSummary(null);
+    setHomePage('challenge');
+    setHomeVisible(true);
+    const userId = activeUserIdRef.current;
+    if (userId) {
+      refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
+    }
+  }, [playSound, refreshChallengeHistory, refreshChallengeRoom]);
 
   const openTrainingPage = useCallback(() => {
     playSound('tap');
@@ -1192,7 +2894,12 @@ export default function App() {
   const openChallengePage = useCallback(() => {
     playSound('tap');
     setHomePage('challenge');
-  }, [playSound]);
+    const userId = activeUserIdRef.current;
+    if (userId) {
+      refreshChallengeRoom(userId);
+      refreshChallengeHistory(userId);
+    }
+  }, [playSound, refreshChallengeHistory, refreshChallengeRoom]);
 
   const openStatsPage = useCallback(() => {
     playSound('tap');
@@ -1223,22 +2930,70 @@ export default function App() {
     playSound('tap');
   }, [playSound, t]);
 
-  const resetChallengeRoom = useCallback(() => {
+  const resetChallengeRoom = useCallback(async () => {
+    const roomId = challengeRoom?.room_id;
+    const userId = activeUserIdRef.current;
     setChallengeRoom(null);
+    setChallengeCountdown(null);
+    setChallengeError('');
     playSound('tap');
-  }, [playSound]);
+    if (roomId && userId) {
+      await clearChallengeGame(userId, roomId).catch(() => {});
+    }
+    if (roomId) {
+      await cancelChallengeRoom(roomId).catch(() => {});
+    }
+  }, [challengeRoom?.room_id, playSound]);
 
-  const startRoomChallenge = useCallback(() => {
-    setChallengeRoom((currentRoom) =>
-      currentRoom
-        ? {
-            ...currentRoom,
-            status: 'development',
-          }
-        : currentRoom,
-    );
+  const handleChallengeReady = useCallback((room) => {
+    setChallengeRoom(room);
+    setChallengeError('');
+    setSettingsVisible(false);
+    setAccountVisible(false);
+    setNotificationsVisible(false);
+    setFriendsVisible(false);
+    setHomeVisible(true);
+    setHomePage('challenge');
+  }, []);
+
+  const startRoomChallenge = useCallback(async () => {
+    if (!challengeRoom?.room_id || challengeActionBusy) {
+      return;
+    }
+
     playSound('tap');
-  }, [playSound]);
+    setChallengeError('');
+
+    if (challengeRoom.status === 'active') {
+      await launchChallengeGame(challengeRoom);
+      return;
+    }
+
+    if (challengeRoom.status !== 'ready') {
+      return;
+    }
+
+    setChallengeActionBusy(true);
+    try {
+      const room = await readyChallengeRoom(
+        challengeRoom.room_id,
+        makeChallengePuzzle(challengeRoom.puzzle_seed),
+      );
+      if (room) {
+        setChallengeRoom(room);
+      }
+    } catch {
+      setChallengeError(t.home.roomActionError);
+    } finally {
+      setChallengeActionBusy(false);
+    }
+  }, [
+    challengeActionBusy,
+    challengeRoom,
+    launchChallengeGame,
+    playSound,
+    t.home.roomActionError,
+  ]);
 
   const showHome = useCallback(() => {
     setOperation(null);
@@ -1248,52 +3003,183 @@ export default function App() {
     dragStateRef.current = null;
     setCompletionSummary(null);
     setSettingsVisible(false);
+    setFriendsVisible(false);
+    setNotificationsVisible(false);
     setHomePage('home');
     setHomeVisible(true);
     playSound('tap');
   }, [playSound]);
 
+  const openPushAction = useCallback(
+    (action, userId) => {
+      if (!action || !userId) {
+        return;
+      }
+
+      if (action.notificationId) {
+        markNotificationsRead([action.notificationId])
+          .then(() => refreshUnreadNotificationCount(userId))
+          .catch(() => {});
+      }
+
+      setHomeVisible(true);
+      setSettingsVisible(false);
+      setAccountVisible(false);
+      setModerationVisible(false);
+      setNotificationsVisible(false);
+      if (action.screen === 'account') {
+        setFriendsVisible(false);
+        setHomePage('home');
+        setAccountVisible(true);
+        return;
+      }
+      if (action.screen === 'challenge') {
+        setFriendsVisible(false);
+        setHomePage('challenge');
+        refreshChallengeRoom(userId);
+        return;
+      }
+
+      setHomePage('home');
+      setFriendsVisible(true);
+    },
+    [refreshChallengeRoom, refreshUnreadNotificationCount],
+  );
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) {
+      return undefined;
+    }
+    return subscribeToPushTokenChanges((devicePushToken) => {
+      // Refetching the native token here re-triggers this listener.
+      refreshPushRegistration(userId, {
+        devicePushToken,
+        silent: true,
+      });
+    });
+  }, [
+    refreshPushRegistration,
+    session?.user?.id,
+  ]);
+
+  useEffect(
+    () =>
+      subscribeToNotificationEvents({
+        onNotification: (notification) => {
+          const userId = activeUserIdRef.current;
+          if (!userId) {
+            return;
+          }
+          refreshIncomingFriendRequestCount(userId);
+          refreshUnreadNotificationCount(userId);
+          const action = pushActionFromNotification(notification);
+          if (action?.screen === 'challenge') {
+            refreshChallengeRoom(userId);
+          }
+        },
+        onResponse: (response) => {
+          const action = pushActionFromResponse(response);
+          if (!action) {
+            return;
+          }
+          const userId = activeUserIdRef.current;
+          if (!userId) {
+            pendingPushActionRef.current = action;
+            return;
+          }
+          openPushAction(action, userId);
+        },
+      }),
+    [
+      openPushAction,
+      refreshIncomingFriendRequestCount,
+      refreshChallengeRoom,
+      refreshUnreadNotificationCount,
+    ],
+  );
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+    const action = pendingPushActionRef.current;
+    if (!userId || !action) {
+      return;
+    }
+    pendingPushActionRef.current = null;
+    openPushAction(action, userId);
+  }, [openPushAction, session?.user?.id]);
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar style="dark" />
-      <View
-        ref={rootRef}
-        onLayout={measureRoot}
-        style={[
-          styles.screen,
-          {
-            paddingHorizontal: metrics.screenPadding,
-            paddingBottom: metrics.screenPadding,
-            paddingTop: metrics.topPadding,
-          },
-        ]}
-      >
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="dark" />
+        <View
+          ref={rootRef}
+          onLayout={measureRoot}
+          style={[
+            styles.screen,
+            {
+              paddingHorizontal: metrics.screenPadding,
+              paddingBottom: metrics.screenPadding,
+              paddingTop: metrics.topPadding,
+            },
+          ]}
+        >
         {homeVisible ? (
           <HomeScreen
+            challengeActionBusy={challengeActionBusy}
+            challengeCountdown={challengeCountdown}
+            challengeError={challengeError}
+            challengeHistory={challengeHistory}
+            challengeHistoryError={challengeHistoryError}
+            challengeHistoryLoading={challengeHistoryLoading}
             challengeRoom={challengeRoom}
+            friendRequestCount={incomingFriendRequestCount}
             homePage={homePage}
             league={currentLeague}
+            language={language}
             onBackHome={showHomeMenu}
             onCreateChallengeRoom={createChallengeRoom}
             onFindChallengeOpponent={findChallengeOpponent}
             onOpenChallenge={openChallengePage}
+            onOpenAccount={openAccount}
             onOpenDaily={openDailyPage}
+            onOpenFriends={openFriends}
+            onOpenNotifications={openNotifications}
             onOpenSettings={openSettings}
             onOpenStreak={openStreak}
             onOpenStats={openStatsPage}
             onOpenTraining={openTrainingPage}
             onOpenWeekly={openWeeklyPage}
             onResetChallengeRoom={resetChallengeRoom}
+            onRetryChallengeHistory={() => {
+              const userId = activeUserIdRef.current;
+              if (userId) {
+                refreshChallengeHistory(userId);
+              }
+            }}
+            onRetryWeeklyLeague={() => {
+              const userId = activeUserIdRef.current;
+              if (userId) {
+                refreshWeeklyLeagueLeaderboard(userId);
+              }
+            }}
             onStartChallengeRace={startRoomChallenge}
             onStartDaily={startDailyGame}
             onStartPractice={(difficulty) => startNewGame(difficulty)}
             onStartTutorial={() => startNewGame('paper')}
             onStartWeekly={startWeeklyGame}
+            profile={profile}
             progress={progress}
+            session={session}
             strings={t}
             todayDone={todayDone}
+            unreadNotificationCount={unreadNotificationCount}
             weekKey={weekKey}
             weeklyDone={weeklyDone}
+            weeklyLeagueError={weeklyLeagueError}
+            weeklyLeagueLeaderboard={weeklyLeagueLeaderboard}
+            weeklyLeagueLoading={weeklyLeagueLoading}
             weeklyScore={weeklyScore}
           />
         ) : (
@@ -1336,21 +3222,25 @@ export default function App() {
               metrics={metrics}
               onPress={openSettings}
             />
-            <IconButton
-              accessibilityLabel={t.actions.resetA11y}
-              icon="↺"
-              label={t.actions.reset}
-              metrics={metrics}
-              onPress={() => startNewGame(game.difficulty, true)}
-            />
-            <IconButton
-              accessibilityLabel={t.actions.newGameA11y}
-              icon="+"
-              label={t.actions.newGame}
-              metrics={metrics}
-              primary
-              onPress={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
-            />
+            {game.mode !== MODE_CHALLENGE ? (
+              <>
+                <IconButton
+                  accessibilityLabel={t.actions.resetA11y}
+                  icon="↺"
+                  label={t.actions.reset}
+                  metrics={metrics}
+                  onPress={() => startNewGame(game.difficulty, true)}
+                />
+                <IconButton
+                  accessibilityLabel={t.actions.newGameA11y}
+                  icon="+"
+                  label={t.actions.newGame}
+                  metrics={metrics}
+                  primary
+                  onPress={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
+                />
+              </>
+            ) : null}
           </View>
         </View>
 
@@ -1365,11 +3255,27 @@ export default function App() {
           />
         </View>
 
+        {game.mode === MODE_CHALLENGE && challengeRoom ? (
+          <View style={[styles.raceStatusBar, { marginBottom: metrics.blockGap }]}>
+            <Text numberOfLines={1} style={styles.raceStatusName}>
+              {challengeRoom.opponent_display_name ||
+                `@${challengeRoom.opponent_username}`}
+            </Text>
+            <Text numberOfLines={1} style={styles.raceStatusProgress}>
+              {t.home.roomProgress(
+                game.targets.filter((target) => target.solved).length,
+                challengeRoom.opponent_solved_targets,
+                challengeRoom.target_count,
+              )}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={[styles.gameArea, { gap: metrics.gameGap }, metrics.isWide && styles.gameAreaWide]}>
           <View style={[styles.boardPane, metrics.isWide && { width: metrics.boardSide + 28 }]}>
             <View style={[styles.sectionHeader, { marginBottom: metrics.blockGap }]}>
               <View>
-                {game.mode !== MODE_WEEKLY ? (
+                {![MODE_WEEKLY, MODE_CHALLENGE].includes(game.mode) ? (
                   <Text style={styles.eyebrow}>{t.gameNames[game.difficulty]}</Text>
                 ) : null}
                 <Text style={[styles.sectionTitle, { fontSize: metrics.sectionTitleSize }]}>
@@ -1466,13 +3372,25 @@ export default function App() {
               <Pressable
                 accessibilityLabel={t.actions.undoA11y}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: undoStack.length === 0 }}
-                disabled={undoStack.length === 0}
+                accessibilityState={{
+                  disabled:
+                    undoStack.length === 0 ||
+                    game.mode === MODE_CHALLENGE,
+                }}
+                disabled={
+                  undoStack.length === 0 ||
+                  game.mode === MODE_CHALLENGE
+                }
                 onPress={undo}
                 style={({ pressed }) => [
                   styles.undoButton,
-                  undoStack.length === 0 && styles.disabledButton,
-                  pressed && undoStack.length > 0 && styles.pressed,
+                  (undoStack.length === 0 ||
+                    game.mode === MODE_CHALLENGE) &&
+                    styles.disabledButton,
+                  pressed &&
+                    undoStack.length > 0 &&
+                    game.mode !== MODE_CHALLENGE &&
+                    styles.pressed,
                 ]}
               >
                 <Text style={styles.undoText}>{t.actions.undo}</Text>
@@ -1501,8 +3419,21 @@ export default function App() {
           visible={tutorialVisible}
         />
         <CompletionPanel
-          onClose={closeCompletion}
-          onNext={() => (game.mode === MODE_WEEKLY ? startWeeklyGame() : startNewGame(game.difficulty))}
+          challengeRoom={
+            game.mode === MODE_CHALLENGE ? challengeRoom : null
+          }
+          onClose={
+            game.mode === MODE_CHALLENGE
+              ? returnToChallengePage
+              : closeCompletion
+          }
+          onNext={() =>
+            game.mode === MODE_CHALLENGE
+              ? returnToChallengePage()
+              : game.mode === MODE_WEEKLY
+                ? startWeeklyGame()
+                : startNewGame(game.difficulty)
+          }
           strings={t}
           summary={completionSummary}
         />
@@ -1510,13 +3441,26 @@ export default function App() {
         )}
         <SettingsPanel
           currentDifficulty={game.difficulty}
+          friendRequestCount={incomingFriendRequestCount}
           leaderboard={weeklyLeaderboard}
+          leaderboardError={friendLeaderboardError}
+          leaderboardLoading={friendLeaderboardLoading}
+          leaderboardOnline={leaderboardOnline}
           league={currentLeague}
+          moderatorRole={moderatorRole}
           onClose={closeSettings}
           onGoHome={showHome}
+          onOpenAccount={openAccount}
+          onOpenFriends={openFriends}
+          onOpenModeration={openModeration}
           onSelectDifficulty={(difficulty) => startNewGame(difficulty)}
           onToggleSound={toggleSound}
+          onTogglePush={togglePushNotifications}
           progress={progress}
+          profile={profile}
+          pushBusy={pushBusy}
+          pushStatus={pushStatus}
+          session={session}
           soundEnabled={soundEnabled}
           strings={t}
           visible={settingsVisible}
@@ -1530,8 +3474,54 @@ export default function App() {
           todayDone={todayDone}
           visible={streakVisible}
         />
-      </View>
-    </SafeAreaView>
+        <AccountPanel
+          configured={isSupabaseConfigured}
+          language={language}
+          loading={authLoading}
+          onClose={closeAccount}
+          onProfileChange={setProfile}
+          onProfileRetry={() => setProfileReloadKey((value) => value + 1)}
+          profile={profile}
+          profileLoadFailed={profileLoadFailed}
+          profileLoading={profileLoading}
+          session={session}
+          strings={t.account}
+          visible={accountVisible}
+        />
+        <FriendsPanel
+          configured={isSupabaseConfigured}
+          loading={authLoading || profileLoading}
+          onClose={closeFriends}
+          onChallengeReady={handleChallengeReady}
+          onIncomingCountChange={handleIncomingFriendRequestCountChange}
+          onOpenAccount={openAccount}
+          profile={profile}
+          session={session}
+          strings={t.friends}
+          visible={friendsVisible}
+        />
+        <NotificationPanel
+          configured={isSupabaseConfigured}
+          loading={authLoading}
+          onClose={closeNotifications}
+          onOpenAccount={openAccount}
+          onOpenChallenge={openChallengePage}
+          onOpenFriends={openFriends}
+          onUnreadCountChange={setUnreadNotificationCount}
+          session={session}
+          strings={t.notifications}
+          visible={notificationsVisible}
+        />
+        <ModerationPanel
+          language={language}
+          onClose={closeModeration}
+          role={moderatorRole}
+          strings={t.moderation}
+          visible={moderationVisible}
+        />
+        </View>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 
@@ -2007,30 +3997,49 @@ function AnimatedGlow({ style }) {
 }
 
 function HomeScreen({
+  challengeActionBusy,
+  challengeCountdown,
+  challengeError,
+  challengeHistory,
+  challengeHistoryError,
+  challengeHistoryLoading,
   challengeRoom,
+  friendRequestCount,
   homePage,
   league,
+  language,
   onBackHome,
   onCreateChallengeRoom,
   onFindChallengeOpponent,
+  onOpenAccount,
   onOpenChallenge,
   onOpenDaily,
+  onOpenFriends,
+  onOpenNotifications,
   onOpenSettings,
   onOpenStreak,
   onOpenStats,
   onOpenTraining,
   onOpenWeekly,
   onResetChallengeRoom,
+  onRetryChallengeHistory,
+  onRetryWeeklyLeague,
   onStartChallengeRace,
   onStartDaily,
   onStartPractice,
   onStartTutorial,
   onStartWeekly,
+  profile,
   progress,
+  session,
   strings,
   todayDone,
+  unreadNotificationCount,
   weekKey,
   weeklyDone,
+  weeklyLeagueError,
+  weeklyLeagueLeaderboard,
+  weeklyLeagueLoading,
   weeklyScore,
 }) {
   const trainingLevels = PLAYABLE_DIFFICULTIES;
@@ -2040,8 +4049,11 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
+          session={session}
           strings={strings}
           title={strings.home.trainingPageTitle}
           todayDone={todayDone}
@@ -2075,8 +4087,11 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
+          session={session}
           strings={strings}
           title={strings.home.dailyPageTitle}
           todayDone={todayDone}
@@ -2110,8 +4125,11 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
+          session={session}
           strings={strings}
           title={strings.home.statsTitle}
           todayDone={todayDone}
@@ -2129,6 +4147,18 @@ function HomeScreen({
             <MiniStat icon={league.icon} label={strings.status.league} value={strings.leagues[league.id]} />
           </View>
         </View>
+        <LeagueLeaderboard
+          accountReady={Boolean(session?.user?.id)}
+          error={weeklyLeagueError}
+          league={league}
+          loading={weeklyLeagueLoading}
+          onOpenAccount={onOpenAccount}
+          onRetry={onRetryWeeklyLeague}
+          profileReady={Boolean(profile?.username)}
+          rows={weeklyLeagueLeaderboard}
+          strings={strings}
+          weekKey={weekKey}
+        />
       </ScrollView>
     );
   }
@@ -2138,8 +4168,11 @@ function HomeScreen({
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
+          session={session}
           strings={strings}
           title={strings.home.weeklyPageTitle}
           todayDone={todayDone}
@@ -2177,12 +4210,41 @@ function HomeScreen({
   }
 
   if (homePage === 'challenge') {
+    const opponentName = challengeRoom
+      ? challengeRoom.opponent_display_name ||
+        `@${challengeRoom.opponent_username}`
+      : '';
+    const raceMessage = challengeRoom
+      ? challengeRoom.status === 'completed'
+        ? getChallengeOutcomeText(challengeRoom, strings)
+        : challengeRoom.own_completed_at
+          ? strings.home.roomOutcomeWaiting
+          : challengeRoom.status === 'active'
+            ? challengeCountdown > 0
+              ? strings.home.roomCountdown(challengeCountdown)
+              : strings.home.roomRaceActive
+            : challengeRoom.own_ready
+              ? strings.home.roomReadyDone
+              : strings.home.roomReadyMessage
+      : '';
+    const canStartRace = Boolean(
+      challengeRoom &&
+        !challengeRoom.own_completed_at &&
+        ((challengeRoom.status === 'ready' &&
+          !challengeRoom.own_ready) ||
+          (challengeRoom.status === 'active' &&
+            challengeCountdown === 0)),
+    );
+
     return (
       <ScrollView contentContainerStyle={styles.homeContent} showsVerticalScrollIndicator={false}>
         <HomePageHeader
           onBack={onBackHome}
+          onOpenAccount={onOpenAccount}
           onOpenStreak={onOpenStreak}
           progress={progress}
+          profile={profile}
+          session={session}
           strings={strings}
           title={strings.home.challengePageTitle}
           todayDone={todayDone}
@@ -2192,14 +4254,111 @@ function HomeScreen({
           <Text style={styles.homeCardText}>{strings.home.challengePageText}</Text>
           <View style={styles.roomPanel}>
             <View style={styles.roomHeader}>
-              <Text style={styles.roomTitle}>{strings.home.challengeStatusTitle}</Text>
+              <Text style={styles.roomTitle}>
+                {challengeRoom
+                  ? strings.home.roomReadyTitle
+                  : strings.home.challengeStatusTitle}
+              </Text>
               <Text style={styles.roomWeek}>{strings.home.challengeTitle}</Text>
             </View>
-            <View style={styles.roomState}>
-              <Text style={styles.roomLabel}>{strings.home.challengeButton}</Text>
-              <Text style={styles.roomMessage}>{strings.home.challengeStatusText}</Text>
-            </View>
+            {challengeRoom ? (
+              <>
+                <View style={styles.roomState}>
+                  <Text style={styles.roomLabel}>{strings.home.roomCode}</Text>
+                  <Text style={styles.roomCode}>
+                    {challengeRoom.room_code}
+                  </Text>
+                  <Text style={styles.roomLabel}>
+                    {strings.home.roomOpponent}
+                  </Text>
+                  <Text style={styles.roomOpponent}>{opponentName}</Text>
+                  <Text style={styles.roomMessage}>
+                    {raceMessage}
+                  </Text>
+                  {challengeRoom.status !== 'ready' ? (
+                    <Text style={styles.roomProgressText}>
+                      {strings.home.roomProgress(
+                        challengeRoom.own_solved_targets,
+                        challengeRoom.opponent_solved_targets,
+                        challengeRoom.target_count,
+                      )}
+                    </Text>
+                  ) : null}
+                </View>
+                {challengeError ? (
+                  <Text style={styles.formError}>{challengeError}</Text>
+                ) : null}
+                {canStartRace ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={challengeActionBusy}
+                    onPress={onStartChallengeRace}
+                    style={({ pressed }) => [
+                      styles.homeButton,
+                      challengeActionBusy && styles.disabledButton,
+                      pressed && !challengeActionBusy && styles.pressed,
+                    ]}
+                  >
+                    {challengeActionBusy ? (
+                      <ActivityIndicator color="#ffffff" />
+                    ) : (
+                      <Text style={styles.homeButtonText}>
+                        {challengeRoom.status === 'active'
+                          ? strings.home.roomResume
+                          : strings.home.roomStart}
+                      </Text>
+                    )}
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onResetChallengeRoom}
+                  style={({ pressed }) => [
+                    styles.secondaryButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.secondaryButtonText}>
+                    {strings.home.roomReset}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <View style={styles.roomState}>
+                  <Text style={styles.roomLabel}>
+                    {strings.home.challengeButton}
+                  </Text>
+                  <Text style={styles.roomMessage}>
+                    {strings.home.challengeStatusText}
+                  </Text>
+                </View>
+                {challengeError ? (
+                  <Text style={styles.formError}>{challengeError}</Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onOpenFriends}
+                  style={({ pressed }) => [
+                    styles.homeButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Text style={styles.homeButtonText}>
+                    {strings.home.roomInviteFriend}
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </View>
+          <ChallengeHistory
+            error={challengeHistoryError}
+            language={language}
+            loading={challengeHistoryLoading}
+            onRetry={onRetryChallengeHistory}
+            rows={challengeHistory}
+            strings={strings.home}
+          />
         </View>
       </ScrollView>
     );
@@ -2214,12 +4373,25 @@ function HomeScreen({
             {strings.home.title}
           </Text>
         </View>
-        <StreakBadge
-          completed={todayDone}
-          count={progress.streak.current}
-          onPress={onOpenStreak}
-          strings={strings}
-        />
+        <View style={styles.homeHeaderActions}>
+          <AccountButton
+            onPress={onOpenAccount}
+            profile={profile}
+            session={session}
+            strings={strings.account}
+          />
+          <NotificationButton
+            count={unreadNotificationCount}
+            onPress={onOpenNotifications}
+            strings={strings.notifications}
+          />
+          <StreakBadge
+            completed={todayDone}
+            count={progress.streak.current}
+            onPress={onOpenStreak}
+            strings={strings}
+          />
+        </View>
       </View>
 
       <View style={styles.homeModeGrid}>
@@ -2249,6 +4421,14 @@ function HomeScreen({
           title={strings.home.tutorialTitle}
         />
         <HomeModeTile
+          accessibilityLabel={
+            friendRequestCount > 0
+              ? `${strings.actions.settings}, ${strings.friends.pendingRequests(
+                  friendRequestCount,
+                )}`
+              : strings.actions.settings
+          }
+          badge={friendRequestCount}
           icon="⚙"
           onPress={onOpenSettings}
           title={strings.actions.settings}
@@ -2260,7 +4440,17 @@ function HomeScreen({
   );
 }
 
-function HomePageHeader({ onBack, onOpenStreak, progress, strings, title, todayDone }) {
+function HomePageHeader({
+  onBack,
+  onOpenAccount,
+  onOpenStreak,
+  profile,
+  progress,
+  session,
+  strings,
+  title,
+  todayDone,
+}) {
   return (
     <View style={styles.homePageHeader}>
       <View style={styles.homePageTitleBlock}>
@@ -2276,23 +4466,96 @@ function HomePageHeader({ onBack, onOpenStreak, progress, strings, title, todayD
           {title}
         </Text>
       </View>
-      <StreakBadge
-        completed={todayDone}
-        count={progress.streak.current}
-        onPress={onOpenStreak}
-        strings={strings}
-      />
+      <View style={styles.homeHeaderActions}>
+        <AccountButton
+          onPress={onOpenAccount}
+          profile={profile}
+          session={session}
+          strings={strings.account}
+        />
+        <StreakBadge
+          completed={todayDone}
+          count={progress.streak.current}
+          onPress={onOpenStreak}
+          strings={strings}
+        />
+      </View>
     </View>
   );
 }
 
-function HomeModeTile({ icon, onPress, title }) {
+function AccountButton({ onPress, profile, session, strings }) {
+  const label = (
+    profile?.display_name ||
+    profile?.username ||
+    session?.user?.email ||
+    strings.icon
+  )
+    .slice(0, 1)
+    .toUpperCase();
+
   return (
     <Pressable
+      accessibilityLabel={strings.buttonA11y}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.accountButton,
+        session && styles.accountButtonActive,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.accountButtonText, session && styles.accountButtonTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function NotificationButton({ count, onPress, strings }) {
+  return (
+    <Pressable
+      accessibilityLabel={
+        count > 0 ? `${strings.buttonA11y}, ${strings.pending(count)}` : strings.buttonA11y
+      }
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.notificationButton,
+        count > 0 && styles.notificationButtonActive,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text
+        style={[
+          styles.notificationButtonText,
+          count > 0 && styles.notificationButtonTextActive,
+        ]}
+      >
+        !
+      </Text>
+      {count > 0 ? (
+        <View style={styles.notificationButtonBadge}>
+          <Text style={styles.notificationBadgeText}>{Math.min(count, 99)}</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function HomeModeTile({ accessibilityLabel, badge = 0, icon, onPress, title }) {
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel || title}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.homeModeTile, pressed && styles.pressed]}
     >
+      {badge > 0 ? (
+        <View style={styles.homeModeBadge}>
+          <Text style={styles.notificationBadgeText}>
+            {Math.min(badge, 99)}
+          </Text>
+        </View>
+      ) : null}
       <Text style={styles.homeModeIcon}>{icon}</Text>
       <Text numberOfLines={2} style={styles.homeModeTitle}>{title}</Text>
     </Pressable>
@@ -2487,13 +4750,26 @@ function StreakPanel({ onClose, progress, strings, todayDone, visible }) {
 
 function SettingsPanel({
   currentDifficulty,
+  friendRequestCount,
   leaderboard,
+  leaderboardError,
+  leaderboardLoading,
+  leaderboardOnline,
   league,
+  moderatorRole,
   onClose,
   onGoHome,
+  onOpenAccount,
+  onOpenFriends,
+  onOpenModeration,
   onSelectDifficulty,
+  onTogglePush,
   onToggleSound,
+  profile,
   progress,
+  pushBusy,
+  pushStatus,
+  session,
   soundEnabled,
   strings,
   visible,
@@ -2503,6 +4779,27 @@ function SettingsPanel({
   if (!visible) {
     return null;
   }
+
+  let leaderboardNote = strings.settings.localLeaderboardNote;
+  if (leaderboardOnline) {
+    leaderboardNote = strings.settings.friendLeaderboardNote;
+  }
+  if (leaderboardError) {
+    leaderboardNote = leaderboardError;
+  }
+  if (leaderboardLoading) {
+    leaderboardNote = strings.settings.friendLeaderboardLoading;
+  }
+
+  const pushSettingCopy = {
+    account_required: strings.notifications.settingsAccount,
+    denied: strings.notifications.settingsDenied,
+    disabled: strings.notifications.settingsDisabled,
+    enabled: strings.notifications.settingsEnabled,
+    error: strings.notifications.settingsError,
+    loading: strings.notifications.loading,
+    unavailable: strings.notifications.settingsUnavailable,
+  }[pushStatus] || strings.notifications.settingsDisabled;
 
   return (
     <View style={styles.modalOverlay}>
@@ -2544,6 +4841,45 @@ function SettingsPanel({
             </Pressable>
 
             <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{
+                checked: pushStatus === 'enabled',
+                disabled: pushBusy || pushStatus === 'loading',
+              }}
+              disabled={pushBusy || pushStatus === 'loading'}
+              onPress={onTogglePush}
+              style={({ pressed }) => [
+                styles.settingRow,
+                styles.settingRowGap,
+                (pushBusy || pushStatus === 'loading') &&
+                  styles.disabledButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.settingIcon}>!</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>
+                  {strings.notifications.settingsTitle}
+                </Text>
+                <Text numberOfLines={2} style={styles.settingSubtitle}>
+                  {pushSettingCopy}
+                </Text>
+              </View>
+              {pushBusy ? (
+                <ActivityIndicator color="#147b76" size="small" />
+              ) : (
+                <Text style={styles.settingValue}>
+                  {pushStatus === 'enabled'
+                    ? 'ON'
+                    : pushStatus === 'denied' ||
+                        pushStatus === 'account_required'
+                      ? '→'
+                      : 'OFF'}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
               accessibilityLabel={strings.actions.homeA11y}
               accessibilityRole="button"
               onPress={onGoHome}
@@ -2556,6 +4892,82 @@ function SettingsPanel({
               </View>
               <Text style={styles.settingValue}>→</Text>
             </Pressable>
+
+            <Pressable
+              accessibilityLabel={strings.account.buttonA11y}
+              accessibilityRole="button"
+              onPress={onOpenAccount}
+              style={({ pressed }) => [styles.settingRow, styles.settingRowGap, pressed && styles.pressed]}
+            >
+              <Text style={styles.settingIcon}>{strings.account.icon}</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>{strings.account.title}</Text>
+                <Text numberOfLines={1} style={styles.settingSubtitle}>
+                  {profile?.display_name ||
+                    (profile?.username ? `@${profile.username}` : null) ||
+                    session?.user?.email ||
+                    strings.account.guestShort}
+                </Text>
+              </View>
+              <Text style={styles.settingValue}>→</Text>
+            </Pressable>
+
+            <Pressable
+              accessibilityLabel={
+                friendRequestCount > 0
+                  ? `${strings.friends.title}, ${strings.friends.pendingRequests(
+                      friendRequestCount,
+                    )}`
+                  : strings.friends.title
+              }
+              accessibilityRole="button"
+              onPress={onOpenFriends}
+              style={({ pressed }) => [
+                styles.settingRow,
+                styles.settingRowGap,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.settingIcon}>{strings.friends.icon}</Text>
+              <View style={styles.settingCopy}>
+                <Text style={styles.settingTitle}>{strings.friends.title}</Text>
+                <Text numberOfLines={1} style={styles.settingSubtitle}>
+                  {strings.friends.settingsSubtitle}
+                </Text>
+              </View>
+              <View style={styles.settingValueGroup}>
+                {friendRequestCount > 0 ? (
+                  <View style={styles.settingNotificationBadge}>
+                    <Text style={styles.notificationBadgeText}>
+                      {Math.min(friendRequestCount, 99)}
+                    </Text>
+                  </View>
+                ) : null}
+                <Text style={styles.settingValue}>→</Text>
+              </View>
+            </Pressable>
+
+            {moderatorRole ? (
+              <Pressable
+                accessibilityLabel={strings.moderation.title}
+                accessibilityRole="button"
+                onPress={onOpenModeration}
+                style={({ pressed }) => [
+                  styles.settingRow,
+                  styles.settingRowGap,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.settingIcon}>{strings.moderation.icon}</Text>
+                <View style={styles.settingCopy}>
+                  <Text style={styles.settingTitle}>{strings.moderation.title}</Text>
+                  <Text numberOfLines={1} style={styles.settingSubtitle}>
+                    {strings.moderation.settingsSubtitle}
+                  </Text>
+                </View>
+                <Text style={styles.settingValue}>→</Text>
+              </Pressable>
+            ) : null}
 
             <Text style={styles.subsectionTitle}>{strings.settings.chooseDifficulty}</Text>
             <View style={styles.choiceGrid}>
@@ -2596,14 +5008,14 @@ function SettingsPanel({
             </View>
             {leaderboard.map((item, index) => (
               <View key={`${item.name}-${index}`} style={[styles.leaderRow, item.isUser && styles.userLeaderRow]}>
-                <Text style={styles.leaderRank}>{index + 1}</Text>
+                <Text style={styles.leaderRank}>{item.position || index + 1}</Text>
                 <Text numberOfLines={1} style={[styles.leaderName, item.isUser && styles.userLeaderText]}>
                   {item.name}
                 </Text>
                 <Text style={[styles.leaderScore, item.isUser && styles.userLeaderText]}>{item.score}</Text>
               </View>
             ))}
-            <Text style={styles.noteText}>{strings.settings.localLeaderboardNote}</Text>
+            <Text style={styles.noteText}>{leaderboardNote}</Text>
           </PanelSection>
 
           <PanelSection title={strings.settings.achievements}>
@@ -2624,7 +5036,13 @@ function SettingsPanel({
   );
 }
 
-function CompletionPanel({ onClose, onNext, strings, summary }) {
+function CompletionPanel({
+  challengeRoom,
+  onClose,
+  onNext,
+  strings,
+  summary,
+}) {
   if (!summary) {
     return null;
   }
@@ -2641,6 +5059,23 @@ function CompletionPanel({ onClose, onNext, strings, summary }) {
           <MiniStat icon="◆" label={strings.completion.targets} value={summary.targets} />
           <MiniStat icon={league.icon} label={strings.completion.league} value={strings.leagues[league.id]} />
         </View>
+        {challengeRoom ? (
+          <View style={styles.completionRace}>
+            <Text style={styles.subsectionTitle}>
+              {strings.completion.raceTitle}
+            </Text>
+            <Text style={styles.completionRaceText}>
+              {getChallengeOutcomeText(challengeRoom, strings)}
+            </Text>
+            <Text style={styles.noteText}>
+              {strings.home.roomProgress(
+                challengeRoom.own_solved_targets,
+                challengeRoom.opponent_solved_targets,
+                challengeRoom.target_count,
+              )}
+            </Text>
+          </View>
+        ) : null}
         <Text style={styles.subsectionTitle}>{strings.completion.newBadges}</Text>
         {summary.newBadgeIds.length > 0 ? (
           <View style={styles.badgeGrid}>
@@ -2655,25 +5090,55 @@ function CompletionPanel({ onClose, onNext, strings, summary }) {
         ) : (
           <Text style={styles.emptyText}>{strings.completion.noNewBadges}</Text>
         )}
-        <View style={styles.completionActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.secondaryButtonText}>{strings.completion.close}</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onNext}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>{strings.completion.next}</Text>
-          </Pressable>
-        </View>
+        {challengeRoom ? (
+          <View style={styles.completionActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {strings.home.roomResume}
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.completionActions}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onClose}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.secondaryButtonText}>{strings.completion.close}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={onNext}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.primaryButtonText}>{strings.completion.next}</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
+}
+
+function getChallengeOutcomeText(room, strings) {
+  if (room?.outcome === 'won') {
+    return strings.home.roomOutcomeWon;
+  }
+  if (room?.outcome === 'lost') {
+    return strings.home.roomOutcomeLost;
+  }
+  if (room?.outcome === 'tie') {
+    return strings.home.roomOutcomeTie;
+  }
+  return strings.home.roomOutcomeWaiting;
 }
 
 function PanelSection({ children, title }) {
@@ -2930,6 +5395,8 @@ function measureTile(ref, number) {
 function createGame(difficulty = 'paper', existingPuzzle = null, strings = STRINGS.tr, options = {}) {
   const mode = options.mode || MODE_NORMAL;
   const challengeKey = options.challengeKey || null;
+  const challengeRoomId = options.challengeRoomId || null;
+  const challengePuzzleSeed = options.challengePuzzleSeed || null;
   const puzzle =
     existingPuzzle ||
     (difficulty === 'paper'
@@ -2944,6 +5411,8 @@ function createGame(difficulty = 'paper', existingPuzzle = null, strings = STRIN
 
   return {
     challengeKey,
+    challengePuzzleSeed,
+    challengeRoomId,
     difficulty,
     boardSize: puzzle.boardSize,
     name: strings.gameNames[difficulty] || puzzle.name,
@@ -2994,6 +5463,13 @@ function makeDailyPuzzle(dateKey, difficulty = 'medium') {
 
 function makeWeeklyPuzzle(weekKey) {
   return makeRandomPuzzle(DIFFICULTIES.weekly, makeSeededRandom(`weekly-${weekKey}`));
+}
+
+function makeChallengePuzzle(puzzleSeed) {
+  return makeRandomPuzzle(
+    DIFFICULTIES.hard,
+    makeSeededRandom(`challenge-${puzzleSeed}`),
+  );
 }
 
 function makeRandomPuzzle(config, random = Math.random) {
@@ -3345,18 +5821,79 @@ function bestScoreKey(difficulty) {
   return `${BEST_SCORE_PREFIX}-${difficulty}`;
 }
 
-async function loadProgress() {
+function progressStorageKey(userId) {
+  return `${PROGRESS_OWNER_KEY_PREFIX}:${userId ? `user:${userId}` : 'guest'}`;
+}
+
+function challengeGameStorageKey(userId, roomId) {
+  return `${CHALLENGE_GAME_PREFIX}:${userId}:${roomId}`;
+}
+
+async function saveChallengeGame(userId, game) {
+  if (!userId || !game?.challengeRoomId || !game?.challengePuzzleSeed) {
+    return;
+  }
+  await AsyncStorage.setItem(
+    challengeGameStorageKey(userId, game.challengeRoomId),
+    JSON.stringify(game),
+  );
+}
+
+async function loadChallengeGame(userId, room) {
   try {
-    const raw = await AsyncStorage.getItem(PROGRESS_KEY);
+    const raw = await AsyncStorage.getItem(
+      challengeGameStorageKey(userId, room.room_id),
+    );
+    if (!raw) {
+      return null;
+    }
+
+    const stored = JSON.parse(raw);
+    if (
+      stored?.mode !== MODE_CHALLENGE ||
+      stored?.challengeRoomId !== room.room_id ||
+      stored?.challengePuzzleSeed !== room.puzzle_seed ||
+      !Array.isArray(stored.bank) ||
+      !Array.isArray(stored.targets) ||
+      !Array.isArray(stored.history)
+    ) {
+      return null;
+    }
+
+    return stored;
+  } catch {
+    return null;
+  }
+}
+
+async function clearChallengeGame(userId, roomId) {
+  if (!userId || !roomId) {
+    return;
+  }
+  await AsyncStorage.removeItem(challengeGameStorageKey(userId, roomId));
+}
+
+async function loadProgress(userId = null) {
+  try {
+    const scopedKey = progressStorageKey(userId);
+    let raw = await AsyncStorage.getItem(scopedKey);
+
+    if (!raw && !userId) {
+      raw = await AsyncStorage.getItem(PROGRESS_KEY);
+      if (raw) {
+        await AsyncStorage.setItem(scopedKey, raw);
+      }
+    }
+
     return normalizeProgress(raw ? JSON.parse(raw) : DEFAULT_PROGRESS);
   } catch {
     return normalizeProgress(DEFAULT_PROGRESS);
   }
 }
 
-async function saveProgress(progress) {
+async function saveProgress(progress, userId = null) {
   try {
-    await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(progress));
+    await AsyncStorage.setItem(progressStorageKey(userId), JSON.stringify(progress));
   } catch {
     // Progress is nice to have; gameplay should continue if storage fails.
   }
@@ -3367,6 +5904,7 @@ function normalizeProgress(progress) {
   const completedWeeklyKeys = progress?.completedWeeklyKeys || {};
   const weeklyScores = progress?.weeklyScores || {};
   const currentWeeklyScore = Number(weeklyScores[currentWeekKey] || 0) || 0;
+  const streak = { ...DEFAULT_PROGRESS.streak, ...(progress?.streak || {}) };
 
   return {
     achievements: { ...DEFAULT_PROGRESS.achievements, ...(progress?.achievements || {}) },
@@ -3381,7 +5919,10 @@ function normalizeProgress(progress) {
     },
     completedWeeklyKeys: completedWeeklyKeys[currentWeekKey] ? { [currentWeekKey]: true } : {},
     stats: { ...DEFAULT_PROGRESS.stats, ...(progress?.stats || {}) },
-    streak: { ...DEFAULT_PROGRESS.streak, ...(progress?.streak || {}) },
+    streak: {
+      ...streak,
+      current: getActiveStreak(streak.current, streak.lastDailyDate),
+    },
     weeklyScores: { [currentWeekKey]: currentWeeklyScore },
   };
 }
@@ -3717,6 +6258,30 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
   },
+  raceStatusBar: {
+    alignItems: 'center',
+    backgroundColor: '#e7fbf8',
+    borderColor: '#8fe4df',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 30,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  raceStatusName: {
+    color: '#147b76',
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  raceStatusProgress: {
+    color: '#20242a',
+    fontSize: 11,
+    fontWeight: '900',
+    marginLeft: 8,
+  },
   statCard: {
     backgroundColor: '#ffffff',
     borderColor: '#d8e2e8',
@@ -3912,6 +6477,71 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
+  homeHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  accountButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  accountButtonActive: {
+    backgroundColor: '#d9f5f2',
+    borderColor: '#1fa7a0',
+  },
+  accountButtonText: {
+    color: '#68737d',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  accountButtonTextActive: {
+    color: '#147b76',
+  },
+  notificationButton: {
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    borderColor: '#d8e2e8',
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 36,
+    justifyContent: 'center',
+    position: 'relative',
+    width: 36,
+  },
+  notificationButtonActive: {
+    backgroundColor: '#d9f5f2',
+    borderColor: '#1fa7a0',
+  },
+  notificationButtonText: {
+    color: '#68737d',
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 20,
+  },
+  notificationButtonTextActive: {
+    color: '#147b76',
+  },
+  notificationButtonBadge: {
+    alignItems: 'center',
+    backgroundColor: '#147b76',
+    borderColor: '#ffffff',
+    borderRadius: 9,
+    borderWidth: 2,
+    height: 18,
+    justifyContent: 'center',
+    minWidth: 18,
+    paddingHorizontal: 3,
+    position: 'absolute',
+    right: -5,
+    top: -5,
+  },
   homeTitleBlock: {
     flex: 1,
     minWidth: 0,
@@ -3940,6 +6570,21 @@ const styles = StyleSheet.create({
     minHeight: 132,
     minWidth: 132,
     padding: 14,
+    position: 'relative',
+  },
+  homeModeBadge: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 2,
+    height: 24,
+    justifyContent: 'center',
+    minWidth: 24,
+    paddingHorizontal: 5,
+    position: 'absolute',
+    right: 10,
+    top: 10,
   },
   homeModeIcon: {
     color: '#147b76',
@@ -4189,12 +6834,25 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginTop: 2,
   },
+  roomOpponent: {
+    color: '#147b76',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 8,
+    marginTop: 2,
+  },
   roomMessage: {
     color: '#56616b',
     fontSize: 12,
     fontWeight: '800',
     lineHeight: 17,
     marginTop: 5,
+  },
+  roomProgressText: {
+    color: '#147b76',
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 8,
   },
   roomActions: {
     flexDirection: 'row',
@@ -4854,6 +7512,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '900',
   },
+  settingValueGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  settingNotificationBadge: {
+    alignItems: 'center',
+    backgroundColor: '#1fa7a0',
+    borderRadius: 11,
+    height: 22,
+    justifyContent: 'center',
+    minWidth: 22,
+    paddingHorizontal: 5,
+  },
+  notificationBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '900',
+  },
   subsectionTitle: {
     color: '#68737d',
     fontSize: 11,
@@ -5017,6 +7694,20 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 7,
     marginTop: 10,
+  },
+  completionRace: {
+    backgroundColor: '#e7fbf8',
+    borderColor: '#8fe4df',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    marginTop: 11,
+    padding: 10,
+  },
+  completionRaceText: {
+    color: '#147b76',
+    fontSize: 15,
+    fontWeight: '900',
+    marginBottom: 3,
   },
   completionActions: {
     flexDirection: 'row',

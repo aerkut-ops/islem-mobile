@@ -1,0 +1,1345 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+const TEST_CAPTCHA_TOKEN = 'XXXX.DUMMY.TOKEN.XXXX';
+const EXPO_PROJECT_ID = '0c09f907-48f9-405c-bc54-877f165297a3';
+const PUSH_SMOKE_WAIT_MS = Math.min(
+  120_000,
+  Math.max(0, Number(process.env.ISLEM_PUSH_SMOKE_WAIT_MS) || 0),
+);
+
+const ACCOUNTS = [
+  {
+    email: 'islemappsupport+test@gmail.com',
+    keychainService: 'islem-supabase-test-account',
+    label: 'Development',
+    username: 'islem_test_player',
+  },
+  {
+    email: 'islemappsupport+appreview@gmail.com',
+    keychainService: 'islem-app-review-account',
+    label: 'App Review',
+    username: 'islem_app_review',
+  },
+];
+
+function parseEnvFile(path) {
+  const values = {};
+  for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || !line.includes('=')) {
+      continue;
+    }
+    const separator = line.indexOf('=');
+    values[line.slice(0, separator).trim()] = line
+      .slice(separator + 1)
+      .trim()
+      .replace(/^(['"])(.*)\1$/, '$2');
+  }
+  return values;
+}
+
+function requireValue(value, name) {
+  if (!value) {
+    throw new Error(`${name} is missing from the local environment.`);
+  }
+  return value;
+}
+
+function getPassword(account) {
+  try {
+    return execFileSync(
+      'security',
+      [
+        'find-generic-password',
+        '-s',
+        account.keychainService,
+        '-a',
+        account.email,
+        '-w',
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trimEnd();
+  } catch {
+    throw new Error(
+      `${account.label} password is missing from macOS Keychain.`,
+    );
+  }
+}
+
+async function signIn(supabaseUrl, publishableKey, account) {
+  const response = await fetch(
+    `${supabaseUrl}/auth/v1/token?grant_type=password`,
+    {
+      method: 'POST',
+      headers: {
+        apikey: publishableKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: account.email,
+        password: getPassword(account),
+        gotrue_meta_security: {
+          captcha_token: TEST_CAPTCHA_TOKEN,
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `${account.label} sign-in failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const payload = await response.json();
+  if (!payload.access_token || !payload.user?.id) {
+    throw new Error(`${account.label} sign-in returned an incomplete session.`);
+  }
+
+  return {
+    ...account,
+    accessToken: payload.access_token,
+    userId: payload.user.id,
+  };
+}
+
+function authHeaders(publishableKey, session) {
+  return {
+    apikey: publishableKey,
+    Authorization: `Bearer ${session.accessToken}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function rpc({
+  supabaseUrl,
+  publishableKey,
+  session,
+  functionName,
+  parameters = {},
+}) {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/rpc/${functionName}`,
+    {
+      method: 'POST',
+      headers: authHeaders(publishableKey, session),
+      body: JSON.stringify(parameters),
+    },
+  );
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    // A failed request can have an empty body; status is checked below.
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      `${session.label} ${functionName} failed with HTTP ${response.status}.`,
+    );
+  }
+
+  return payload;
+}
+
+async function listConnections(context, session) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_friend_connections',
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Friend connections returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function listBlockedPlayers(context, session) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_blocked_players',
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Blocked players returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function assertRpcRejected({
+  context,
+  functionName,
+  parameters,
+  session,
+}) {
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
+    {
+      method: 'POST',
+      headers: authHeaders(context.publishableKey, session),
+      body: JSON.stringify(parameters),
+    },
+  );
+  if (![400, 401, 403].includes(response.status)) {
+    throw new Error(
+      `${session.label} ${functionName} was not rejected as expected.`,
+    );
+  }
+}
+
+async function listWeeklyLeaderboard(context, session, weekKey) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_friend_weekly_leaderboard',
+    parameters: { p_week_key: weekKey },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Friend weekly leaderboard returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function listWeeklyLeagueLeaderboard(context, session, weekKey) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_weekly_league_leaderboard',
+    parameters: { p_week_key: weekKey },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Weekly league leaderboard returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function listFriendActivity(context, session, limit = 12) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_friend_activity',
+    parameters: { p_limit: limit },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Friend activity returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function hasRecentCompletedEvent(context, session) {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const query = new URLSearchParams({
+    select: 'id',
+    completed: 'eq.true',
+    played_at: `gte.${cutoff}`,
+    limit: '1',
+  });
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/score_events?${query.toString()}`,
+    { headers: authHeaders(context.publishableKey, session) },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `${session.label} score event lookup failed with HTTP ${response.status}.`,
+    );
+  }
+  const rows = await response.json();
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+async function getIncomingRequestCount(context, session) {
+  const count = await rpc({
+    ...context,
+    session,
+    functionName: 'get_incoming_friend_request_count',
+  });
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error('Incoming friend request count is invalid.');
+  }
+  return count;
+}
+
+async function listNotifications(context, session, limit = 30) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'list_user_notifications',
+    parameters: { p_limit: limit },
+  });
+  if (!Array.isArray(rows)) {
+    throw new Error('Notifications returned an unexpected response.');
+  }
+  return rows;
+}
+
+async function getUnreadNotificationCount(context, session) {
+  const count = await rpc({
+    ...context,
+    session,
+    functionName: 'get_unread_notification_count',
+  });
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error('Unread notification count is invalid.');
+  }
+  return count;
+}
+
+async function dismissNotification(context, session, notificationId) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'dismiss_notification',
+    parameters: { p_notification_id: notificationId },
+  });
+}
+
+async function registerPushDevice(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'register_push_device',
+    parameters: {
+      p_application_id: 'com.aydin.islem.security-test',
+      p_expo_push_token: pushToken,
+      p_locale: 'en',
+      p_platform: 'ios',
+      p_project_id: EXPO_PROJECT_ID,
+    },
+  });
+}
+
+async function isPushDeviceRegistered(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'is_push_device_registered',
+    parameters: { p_expo_push_token: pushToken },
+  });
+}
+
+async function unregisterPushDevice(context, session, pushToken) {
+  return rpc({
+    ...context,
+    session,
+    functionName: 'unregister_push_device',
+    parameters: { p_expo_push_token: pushToken },
+  });
+}
+
+async function cleanupTestNotifications(context, sessions, entityIds) {
+  for (const session of sessions) {
+    const rows = await listNotifications(context, session, 50);
+    for (const row of rows) {
+      if (entityIds.has(row.entity_id)) {
+        await dismissNotification(
+          context,
+          session,
+          row.notification_id,
+        );
+      }
+    }
+  }
+}
+
+async function getFriendProfile(context, session, playerId) {
+  const rows = await rpc({
+    ...context,
+    session,
+    functionName: 'get_friend_profile',
+    parameters: { p_player_id: playerId },
+  });
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error('Friend profile returned an unexpected response.');
+  }
+  return rows[0];
+}
+
+async function assertFriendProfileDenied(context, session, playerId) {
+  const response = await fetch(
+    `${context.supabaseUrl}/rest/v1/rpc/get_friend_profile`,
+    {
+      method: 'POST',
+      headers: authHeaders(context.publishableKey, session),
+      body: JSON.stringify({ p_player_id: playerId }),
+    },
+  );
+  if (![400, 401, 403].includes(response.status)) {
+    throw new Error(
+      `${session.label} can read a profile without an accepted friendship.`,
+    );
+  }
+}
+
+function getCurrentWeekKey() {
+  const date = new Date();
+  const day = date.getDay() || 7;
+  date.setDate(date.getDate() - day + 1);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const calendarDay = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${calendarDay}`;
+}
+
+async function cleanTestRelationship(context, first, second) {
+  const firstRows = await listConnections(context, first);
+  const relation = firstRows.find((row) => row.player_id === second.userId);
+  if (!relation) {
+    return;
+  }
+
+  if (relation.connection_type === 'friend') {
+    await rpc({
+      ...context,
+      session: first,
+      functionName: 'remove_friend',
+      parameters: { p_friend_user_id: second.userId },
+    });
+  } else if (relation.connection_type === 'outgoing') {
+    await rpc({
+      ...context,
+      session: first,
+      functionName: 'cancel_friend_request',
+      parameters: { p_request_id: relation.request_id },
+    });
+  } else if (relation.connection_type === 'incoming') {
+    await rpc({
+      ...context,
+      session: first,
+      functionName: 'respond_friend_request',
+      parameters: {
+        p_accept: false,
+        p_request_id: relation.request_id,
+      },
+    });
+  }
+}
+
+async function assertDirectTablesDenied(context, session) {
+  for (const table of [
+    'friend_requests',
+    'friendships',
+    'push_deliveries',
+    'push_devices',
+    'player_reports',
+    'user_notifications',
+    'user_blocks',
+  ]) {
+    const response = await fetch(
+      `${context.supabaseUrl}/rest/v1/${table}?select=*`,
+      {
+        headers: authHeaders(context.publishableKey, session),
+      },
+    );
+    if (![401, 403].includes(response.status)) {
+      throw new Error(`Direct ${table} reads are not denied.`);
+    }
+  }
+}
+
+async function assertAnonymousRpcDenied(context) {
+  for (const functionName of [
+    'block_player',
+    'claim_pending_push_notifications',
+    'dismiss_notification',
+    'get_friend_profile',
+    'get_incoming_friend_request_count',
+    'get_unread_notification_count',
+    'list_friend_activity',
+    'list_friend_connections',
+    'list_friend_weekly_leaderboard',
+    'list_blocked_players',
+    'list_weekly_league_leaderboard',
+    'list_user_notifications',
+    'mark_notifications_read',
+    'register_push_device',
+    'report_player',
+    'unregister_push_device',
+    'unblock_player',
+    'is_push_device_registered',
+    'verify_push_worker_secret',
+  ]) {
+    const parameters = {
+      block_player: { p_target_user_id: null },
+      claim_pending_push_notifications: { p_limit: 1 },
+      dismiss_notification: { p_notification_id: null },
+      get_friend_profile: { p_player_id: null },
+      is_push_device_registered: { p_expo_push_token: null },
+      mark_notifications_read: { p_notification_ids: null },
+      register_push_device: {
+        p_application_id: null,
+        p_expo_push_token: null,
+        p_locale: 'en',
+        p_platform: 'ios',
+        p_project_id: EXPO_PROJECT_ID,
+      },
+      report_player: { p_reason: 'other', p_target_user_id: null },
+      unregister_push_device: { p_expo_push_token: null },
+      unblock_player: { p_target_user_id: null },
+      verify_push_worker_secret: { p_secret: null },
+    }[functionName] || {};
+    const response = await fetch(
+      `${context.supabaseUrl}/rest/v1/rpc/${functionName}`,
+      {
+        method: 'POST',
+        headers: {
+          apikey: context.publishableKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(parameters),
+      },
+    );
+    if (![401, 403].includes(response.status)) {
+      throw new Error(`Anonymous ${functionName} access was not denied.`);
+    }
+  }
+}
+
+async function verifyPlayerReporting(context, development, appReview) {
+  await assertRpcRejected({
+    context,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: development.userId,
+    },
+    session: development,
+  });
+  await assertRpcRejected({
+    context,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'unsupported_reason',
+      p_target_user_id: appReview.userId,
+    },
+    session: development,
+  });
+
+  const firstResult = await rpc({
+    ...context,
+    session: development,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: appReview.userId,
+    },
+  });
+  if (!['reported', 'already_reported'].includes(firstResult)) {
+    throw new Error(`Player report returned ${String(firstResult)}.`);
+  }
+
+  const duplicateResult = await rpc({
+    ...context,
+    session: development,
+    functionName: 'report_player',
+    parameters: {
+      p_reason: 'other',
+      p_target_user_id: appReview.userId,
+    },
+  });
+  if (duplicateResult !== 'already_reported') {
+    throw new Error('Duplicate player report was not handled safely.');
+  }
+
+  console.log('PASS  Player reports validate targets and remain idempotent.');
+}
+
+async function verifyPlayerBlocking(context, development, appReview, weekKey) {
+  const safeBlockedKeys = new Set([
+    'blocked_at',
+    'display_name',
+    'player_id',
+    'username',
+  ]);
+
+  await rpc({
+    ...context,
+    session: development,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: appReview.userId },
+  });
+  await rpc({
+    ...context,
+    session: appReview,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: development.userId },
+  });
+  await cleanTestRelationship(context, development, appReview);
+
+  try {
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const incoming = (await listConnections(context, appReview)).find(
+      (row) =>
+        row.player_id === development.userId &&
+        row.connection_type === 'incoming',
+    );
+    if (!incoming?.request_id) {
+      throw new Error('Blocking test friend request is missing.');
+    }
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_friend_request',
+      parameters: { p_accept: true, p_request_id: incoming.request_id },
+    });
+
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_challenge_invite',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const challengeInvites = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'list_challenge_invites',
+    });
+    const challengeInvite = challengeInvites.find(
+      (row) => row.player_id === development.userId,
+    );
+    if (!challengeInvite?.invite_id) {
+      throw new Error('Blocking test challenge invite is missing.');
+    }
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_challenge_invite',
+      parameters: { p_accept: true, p_invite_id: challengeInvite.invite_id },
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await rpc({
+        ...context,
+        session: development,
+        functionName: 'block_player',
+        parameters: { p_target_user_id: appReview.userId },
+      });
+      if (result !== 'blocked') {
+        throw new Error('Player blocking is not idempotent.');
+      }
+    }
+
+    const blockedRows = await listBlockedPlayers(context, development);
+    const blockedPlayer = blockedRows.find(
+      (row) => row.player_id === appReview.userId,
+    );
+    if (
+      !blockedPlayer ||
+      blockedPlayer.username !== appReview.username ||
+      Object.keys(blockedPlayer).some((key) => !safeBlockedKeys.has(key))
+    ) {
+      throw new Error('The blocker cannot read a safe private block list.');
+    }
+    if (
+      (await listBlockedPlayers(context, appReview)).some(
+        (row) => row.player_id === development.userId,
+      )
+    ) {
+      throw new Error('A blocked player can discover who blocked them.');
+    }
+
+    const crossAccountUnblock = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: development.userId },
+    });
+    if (crossAccountUnblock !== 'not_blocked') {
+      throw new Error('A blocked player changed another account block row.');
+    }
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      if (
+        (await listConnections(context, session)).some(
+          (row) => row.player_id === other.userId,
+        )
+      ) {
+        throw new Error(`${session.label} still sees a blocked relationship.`);
+      }
+
+      const searchRows = await rpc({
+        ...context,
+        session,
+        functionName: 'search_players',
+        parameters: { p_limit: 20, p_query: other.username },
+      });
+      if (searchRows.some((row) => row.player_id === other.userId)) {
+        throw new Error(`${session.label} can find a blocked player in search.`);
+      }
+
+      const invites = await rpc({
+        ...context,
+        session,
+        functionName: 'list_challenge_invites',
+      });
+      const rooms = await rpc({
+        ...context,
+        session,
+        functionName: 'list_active_challenge_rooms',
+      });
+      const history = await rpc({
+        ...context,
+        session,
+        functionName: 'list_challenge_history',
+        parameters: { p_limit: 50 },
+      });
+      const league = await listWeeklyLeagueLeaderboard(
+        context,
+        session,
+        weekKey,
+      );
+      if (
+        invites.some((row) => row.player_id === other.userId) ||
+        rooms.some((row) => row.opponent_id === other.userId) ||
+        history.some((row) => row.opponent_id === other.userId) ||
+        league.some((row) => row.player_id === other.userId)
+      ) {
+        throw new Error(`${session.label} still sees blocked social data.`);
+      }
+
+      await assertRpcRejected({
+        context,
+        functionName: 'send_friend_request',
+        parameters: { p_target_user_id: other.userId },
+        session,
+      });
+    }
+    console.log('PASS  Player blocks hide both sides and stop new interaction.');
+
+    const unblockResult = await rpc({
+      ...context,
+      session: development,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    if (unblockResult !== 'unblocked') {
+      throw new Error('The blocker could not remove their own block.');
+    }
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const searchRows = await rpc({
+        ...context,
+        session,
+        functionName: 'search_players',
+        parameters: { p_limit: 20, p_query: other.username },
+      });
+      if (!searchRows.some((row) => row.player_id === other.userId)) {
+        throw new Error(`${session.label} cannot find an unblocked player.`);
+      }
+    }
+
+    const sendAfterUnblock = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: development.userId },
+    });
+    if (sendAfterUnblock !== 'sent') {
+      throw new Error('Interaction did not recover after unblocking.');
+    }
+    console.log('PASS  Only the blocker can unblock and interaction recovers.');
+  } finally {
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'unblock_player',
+      parameters: { p_target_user_id: development.userId },
+    });
+    await cleanTestRelationship(context, development, appReview);
+  }
+}
+
+async function main() {
+  const fileEnv = parseEnvFile(new URL('../.env', import.meta.url));
+  const context = {
+    supabaseUrl: requireValue(
+      process.env.EXPO_PUBLIC_SUPABASE_URL ??
+        fileEnv.EXPO_PUBLIC_SUPABASE_URL,
+      'EXPO_PUBLIC_SUPABASE_URL',
+    ).replace(/\/+$/, ''),
+    publishableKey: requireValue(
+      process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+        fileEnv.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+      'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY',
+    ),
+  };
+
+  const sessions = [];
+  for (const account of ACCOUNTS) {
+    sessions.push(
+      await signIn(context.supabaseUrl, context.publishableKey, account),
+    );
+  }
+  const [development, appReview] = sessions;
+  const weekKey = getCurrentWeekKey();
+
+  if (development.userId === appReview.userId) {
+    throw new Error('The two test accounts resolved to the same user.');
+  }
+
+  const testPushToken =
+    `ExponentPushToken[security_${development.userId.replaceAll('-', '')}]`;
+  if (
+    (await registerPushDevice(context, development, testPushToken)) !== true ||
+    (await isPushDeviceRegistered(context, development, testPushToken)) !==
+      true
+  ) {
+    throw new Error('Development push device was not registered.');
+  }
+  if (
+    (await registerPushDevice(context, appReview, testPushToken)) !== false ||
+    (await isPushDeviceRegistered(context, appReview, testPushToken)) !== false
+  ) {
+    throw new Error('An active push token was reassigned to another account.');
+  }
+  if (
+    (await unregisterPushDevice(context, development, testPushToken)) !==
+      true ||
+    (await registerPushDevice(context, appReview, testPushToken)) !== true ||
+    (await unregisterPushDevice(context, appReview, testPushToken)) !== true
+  ) {
+    throw new Error('Push token ownership transfer did not require deactivation.');
+  }
+  console.log('PASS  Push tokens cannot be hijacked between active accounts.');
+
+  await rpc({
+    ...context,
+    session: development,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: appReview.userId },
+  });
+  await rpc({
+    ...context,
+    session: appReview,
+    functionName: 'unblock_player',
+    parameters: { p_target_user_id: development.userId },
+  });
+  await cleanTestRelationship(context, development, appReview);
+  const testEntityIds = new Set();
+
+  try {
+    const initialIncomingCount = await getIncomingRequestCount(
+      context,
+      appReview,
+    );
+    const initialAppReviewUnread = await getUnreadNotificationCount(
+      context,
+      appReview,
+    );
+    const initialDevelopmentUnread = await getUnreadNotificationCount(
+      context,
+      development,
+    );
+    const privateActivity = await listFriendActivity(context, development);
+    if (privateActivity.some((row) => row.player_id === appReview.userId)) {
+      throw new Error('Non-friend activity is visible.');
+    }
+    await assertFriendProfileDenied(
+      context,
+      development,
+      appReview.userId,
+    );
+    console.log('PASS  Non-friend profile access is denied.');
+    console.log('PASS  Non-friend activity remains hidden.');
+
+    const privateLeaderboard = await listWeeklyLeaderboard(
+      context,
+      development,
+      weekKey,
+    );
+    if (
+      !privateLeaderboard.some(
+        (row) =>
+          row.player_id === development.userId && row.is_current_user === true,
+      ) ||
+      privateLeaderboard.some((row) => row.player_id === appReview.userId)
+    ) {
+      throw new Error('Non-friend weekly scores are visible.');
+    }
+    console.log('PASS  Weekly scores remain hidden before friendship.');
+
+    const safeLeagueKeys = new Set([
+      'display_name',
+      'is_current_user',
+      'league_key',
+      'participant_count',
+      'player_id',
+      'rank_position',
+      'score',
+      'username',
+    ]);
+    const validLeagues = new Set([
+      'bronze',
+      'silver',
+      'gold',
+      'diamond',
+      'mastery',
+    ]);
+    for (const session of sessions) {
+      const rows = await listWeeklyLeagueLeaderboard(
+        context,
+        session,
+        weekKey,
+      );
+      const ownRow = rows.find((row) => row.player_id === session.userId);
+      if (
+        rows.length > 21 ||
+        !ownRow?.is_current_user ||
+        !validLeagues.has(ownRow.league_key) ||
+        rows.some(
+          (row) =>
+            row.league_key !== ownRow.league_key ||
+            Number(row.participant_count) < Number(row.rank_position) ||
+            Object.keys(row).some((key) => !safeLeagueKeys.has(key)),
+        )
+      ) {
+        throw new Error(
+          `${session.label} weekly league leaderboard is incomplete or unsafe.`,
+        );
+      }
+    }
+    console.log('PASS  Weekly league standings expose only bounded public fields.');
+
+    const searchRows = await rpc({
+      ...context,
+      session: development,
+      functionName: 'search_players',
+      parameters: { p_limit: 20, p_query: appReview.username },
+    });
+    const match = searchRows.find((row) => row.player_id === appReview.userId);
+    if (
+      !match ||
+      match.username !== appReview.username ||
+      match.connection_type !== 'none' ||
+      'email' in match
+    ) {
+      throw new Error('Player search exposed unexpected data or relation state.');
+    }
+    console.log('PASS  Player search returns only safe public profile fields.');
+
+    const sendResult = await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    if (sendResult !== 'sent') {
+      throw new Error(`Friend request returned ${String(sendResult)}.`);
+    }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount + 1
+    ) {
+      throw new Error('Incoming request count did not increase after sending.');
+    }
+
+    const duplicateResult = await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    if (duplicateResult !== 'already_sent') {
+      throw new Error('Duplicate friend request was not handled safely.');
+    }
+    console.log('PASS  Friend requests are idempotent per player pair.');
+
+    const outgoingRows = await listConnections(context, development);
+    const outgoing = outgoingRows.find(
+      (row) =>
+        row.player_id === appReview.userId &&
+        row.connection_type === 'outgoing',
+    );
+    if (!outgoing?.request_id) {
+      throw new Error('Outgoing friend request is missing.');
+    }
+    testEntityIds.add(outgoing.request_id);
+
+    const safeNotificationKeys = new Set([
+      'actor_display_name',
+      'actor_id',
+      'actor_username',
+      'created_at',
+      'entity_id',
+      'is_read',
+      'notification_id',
+      'notification_type',
+    ]);
+    const firstRequestNotifications = await listNotifications(
+      context,
+      appReview,
+      50,
+    );
+    const firstRequestNotification = firstRequestNotifications.find(
+      (row) =>
+        row.entity_id === outgoing.request_id &&
+        row.notification_type === 'friend_request',
+    );
+    if (
+      !firstRequestNotification ||
+      firstRequestNotification.actor_id !== development.userId ||
+      firstRequestNotification.is_read ||
+      Object.keys(firstRequestNotification).some(
+        (key) => !safeNotificationKeys.has(key),
+      )
+    ) {
+      throw new Error('Friend request notification is missing or unsafe.');
+    }
+    if (
+      (await getUnreadNotificationCount(context, appReview)) !==
+      initialAppReviewUnread + 1
+    ) {
+      throw new Error('Unread count did not increase after a friend request.');
+    }
+    console.log('PASS  Friend request creates one private safe notification.');
+
+    const cancelResult = await rpc({
+      ...context,
+      session: development,
+      functionName: 'cancel_friend_request',
+      parameters: { p_request_id: outgoing.request_id },
+    });
+    if (cancelResult !== 'cancelled') {
+      throw new Error('Friend request was not cancelled.');
+    }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after cancelling.');
+    }
+    if (
+      (await listNotifications(context, appReview, 50)).some(
+        (row) => row.entity_id === outgoing.request_id,
+      ) ||
+      (await getUnreadNotificationCount(context, appReview)) !==
+        initialAppReviewUnread
+    ) {
+      throw new Error('Cancelled request notification was not removed.');
+    }
+
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const declineRows = await listConnections(context, appReview);
+    const requestToDecline = declineRows.find(
+      (row) =>
+        row.player_id === development.userId &&
+        row.connection_type === 'incoming',
+    );
+    if (!requestToDecline?.request_id) {
+      throw new Error('Request to decline is missing.');
+    }
+    testEntityIds.add(requestToDecline.request_id);
+    const declineResult = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_friend_request',
+      parameters: {
+        p_accept: false,
+        p_request_id: requestToDecline.request_id,
+      },
+    });
+    if (declineResult !== 'declined') {
+      throw new Error('Friend request was not declined.');
+    }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after declining.');
+    }
+    if (
+      (await listNotifications(context, appReview, 50)).some(
+        (row) => row.entity_id === requestToDecline.request_id,
+      )
+    ) {
+      throw new Error('Declined request notification was not removed.');
+    }
+    console.log('PASS  Friend requests can be cancelled and declined.');
+
+    await rpc({
+      ...context,
+      session: development,
+      functionName: 'send_friend_request',
+      parameters: { p_target_user_id: appReview.userId },
+    });
+    const incomingRows = await listConnections(context, appReview);
+    const incoming = incomingRows.find(
+      (row) =>
+        row.player_id === development.userId &&
+        row.connection_type === 'incoming',
+    );
+    if (!incoming?.request_id || 'email' in incoming) {
+      throw new Error('Incoming friend request is missing or exposes email.');
+    }
+    testEntityIds.add(incoming.request_id);
+
+    const acceptResult = await rpc({
+      ...context,
+      session: appReview,
+      functionName: 'respond_friend_request',
+      parameters: {
+        p_accept: true,
+        p_request_id: incoming.request_id,
+      },
+    });
+    if (acceptResult !== 'accepted') {
+      throw new Error('Friend request was not accepted.');
+    }
+    if (
+      (await getIncomingRequestCount(context, appReview)) !==
+      initialIncomingCount
+    ) {
+      throw new Error('Incoming request count did not reset after accepting.');
+    }
+    console.log('PASS  Incoming request count follows request state.');
+
+    const receiverNotifications = await listNotifications(
+      context,
+      appReview,
+      50,
+    );
+    if (
+      receiverNotifications.some(
+        (row) => row.entity_id === incoming.request_id,
+      )
+    ) {
+      throw new Error('Accepted request notification was not removed.');
+    }
+
+    const senderNotifications = await listNotifications(
+      context,
+      development,
+      50,
+    );
+    const acceptedNotification = senderNotifications.find(
+      (row) =>
+        row.entity_id === incoming.request_id &&
+        row.notification_type === 'friend_accepted',
+    );
+    if (
+      !acceptedNotification ||
+      acceptedNotification.actor_id !== appReview.userId ||
+      acceptedNotification.is_read ||
+      Object.keys(acceptedNotification).some(
+        (key) => !safeNotificationKeys.has(key),
+      )
+    ) {
+      throw new Error('Accepted request notification is missing or unsafe.');
+    }
+    if (
+      (await getUnreadNotificationCount(context, development)) !==
+        initialDevelopmentUnread + 1
+    ) {
+      throw new Error('Acceptance did not increase the sender unread count.');
+    }
+    if (PUSH_SMOKE_WAIT_MS > 0) {
+      console.log(
+        `WAIT  Keeping the acceptance notification pending for ${PUSH_SMOKE_WAIT_MS}ms.`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, PUSH_SMOKE_WAIT_MS));
+    }
+
+    const crossAccountDismiss = await dismissNotification(
+      context,
+      appReview,
+      acceptedNotification.notification_id,
+    );
+    if (crossAccountDismiss !== false) {
+      throw new Error('Another account could dismiss a private notification.');
+    }
+
+    const markedCount = await rpc({
+      ...context,
+      session: development,
+      functionName: 'mark_notifications_read',
+      parameters: {
+        p_notification_ids: [acceptedNotification.notification_id],
+      },
+    });
+    const readNotification = (
+      await listNotifications(context, development, 50)
+    ).find(
+      (row) => row.notification_id === acceptedNotification.notification_id,
+    );
+    if (
+      markedCount !== 1 ||
+      !readNotification?.is_read ||
+      (await getUnreadNotificationCount(context, development)) !==
+        initialDevelopmentUnread
+    ) {
+      throw new Error('Notification read state was not scoped or persisted.');
+    }
+    console.log('PASS  Acceptance notifications are private and readable once.');
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const rows = await listConnections(context, session);
+      if (
+        !rows.some(
+          (row) =>
+            row.player_id === other.userId &&
+            row.connection_type === 'friend',
+        )
+      ) {
+        throw new Error(`${session.label} cannot see the accepted friendship.`);
+      }
+    }
+    console.log('PASS  Accepted friendships are visible to both participants.');
+
+    const safeProfileKeys = new Set([
+      'best_score',
+      'best_streak',
+      'display_name',
+      'games_completed',
+      'player_id',
+      'total_score',
+      'username',
+      'weekly_score',
+    ]);
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const friendProfile = await getFriendProfile(
+        context,
+        session,
+        other.userId,
+      );
+      if (
+        friendProfile.player_id !== other.userId ||
+        friendProfile.username !== other.username ||
+        Object.keys(friendProfile).some((key) => !safeProfileKeys.has(key))
+      ) {
+        throw new Error(
+          `${session.label} friend profile is incomplete or exposes private fields.`,
+        );
+      }
+    }
+    console.log('PASS  Friend profiles expose only safe aggregate fields.');
+
+    const safeActivityKeys = new Set([
+      'activity_id',
+      'awarded_score',
+      'difficulty',
+      'display_name',
+      'duration_seconds',
+      'mode',
+      'played_at',
+      'player_id',
+      'target_count',
+      'targets_solved',
+      'username',
+    ]);
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const rows = await listFriendActivity(context, session, 999);
+      if (
+        rows.length > 20 ||
+        rows.some(
+          (row) =>
+            row.player_id === session.userId ||
+            Object.keys(row).some((key) => !safeActivityKeys.has(key)),
+        )
+      ) {
+        throw new Error(
+          `${session.label} friend activity is unbounded or exposes private fields.`,
+        );
+      }
+
+      if (
+        (await hasRecentCompletedEvent(context, other)) &&
+        !rows.some((row) => row.player_id === other.userId)
+      ) {
+        throw new Error(
+          `${session.label} cannot see the accepted friend's recent activity.`,
+        );
+      }
+    }
+    console.log('PASS  Friend activity exposes only safe recent summaries.');
+
+    for (const [session, other] of [
+      [development, appReview],
+      [appReview, development],
+    ]) {
+      const rows = await listWeeklyLeaderboard(context, session, weekKey);
+      const ownRow = rows.find((row) => row.player_id === session.userId);
+      const friendRow = rows.find((row) => row.player_id === other.userId);
+      if (
+        !ownRow?.is_current_user ||
+        !friendRow ||
+        friendRow.is_current_user ||
+        rows.some((row) => 'email' in row)
+      ) {
+        throw new Error(
+          `${session.label} friend weekly leaderboard is incomplete or unsafe.`,
+        );
+      }
+    }
+    console.log('PASS  Friend weekly scores are visible only after acceptance.');
+
+    await assertDirectTablesDenied(context, development);
+    console.log('PASS  Direct friend table reads are denied.');
+
+    await assertAnonymousRpcDenied(context);
+    console.log('PASS  Anonymous friend RPC access is denied.');
+  } finally {
+    await cleanTestRelationship(context, development, appReview);
+    await cleanupTestNotifications(context, sessions, testEntityIds);
+  }
+
+  const finalRows = await listConnections(context, development);
+  if (finalRows.some((row) => row.player_id === appReview.userId)) {
+    throw new Error('Security test did not clean up its test relationship.');
+  }
+  await assertFriendProfileDenied(context, development, appReview.userId);
+  const finalActivity = await listFriendActivity(context, development);
+  if (finalActivity.some((row) => row.player_id === appReview.userId)) {
+    throw new Error('Removed friend is still visible in friend activity.');
+  }
+
+  const finalLeaderboard = await listWeeklyLeaderboard(
+    context,
+    development,
+    weekKey,
+  );
+  if (finalLeaderboard.some((row) => row.player_id === appReview.userId)) {
+    throw new Error('Removed friend is still visible in the weekly leaderboard.');
+  }
+
+  await verifyPlayerReporting(context, development, appReview);
+  await verifyPlayerBlocking(context, development, appReview, weekKey);
+
+  console.log('PASS  Friend security check completed and cleaned up test data.');
+}
+
+main().catch((error) => {
+  console.error(`FAIL  ${error.message}`);
+  process.exitCode = 1;
+});

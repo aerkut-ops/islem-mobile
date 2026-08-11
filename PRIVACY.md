@@ -1,28 +1,49 @@
 # İşlem Gizlilik Politikası
 
-Son güncelleme: 14 Temmuz 2026
+Son güncelleme: 30 Temmuz 2026
 
-İşlem, verilen sayılar ve işlemlerle hedef sayılara ulaşmaya çalıştığınız bir matematik oyunudur. Uygulama hesap oluşturma, reklam, takip veya analitik hizmeti kullanmaz.
+İşlem, verilen sayılar ve dört işlemle hedef sayılara ulaşmaya çalıştığınız bir matematik oyunudur. Oyun misafir olarak hesap oluşturmadan oynanabilir. Bulut senkronizasyonu ve çevrimiçi özelliklerden yararlanmak isteyen kullanıcılar isteğe bağlı bir hesap oluşturabilir.
 
 ## Toplanan Veriler
 
-Uygulama kişisel veri toplamaz.
+Hesap oluşturulduğunda ve bulut özellikleri kullanıldığında aşağıdaki bilgiler işlenir:
+
+- E-posta adresi ve Supabase tarafından oluşturulan kullanıcı kimliği
+- Uygulama dili ve isteğe bağlı profil bilgileri
+- Tamamlanan oyunların modu, zorluk seviyesi, puanı, işlem ve hedef sayıları, süre ve ipucu kullanımı
+- Toplam puan, seri, başarı, günlük ilerleme ve haftalık/aylık oyun özetleri
+- Bildirimler kullanıcı tarafından açılırsa hesaba bağlı bildirim tokenı, cihaz platformu, uygulama dili ve bildirim teslim durumu
+- Giriş sırasında otomatik kötüye kullanımı önlemek için IP adresi, tarayıcı/cihaz özellikleri ve güvenlik kontrolü sonucu gibi teknik bilgiler
+
+Misafir olarak oynanan ve bir hesaba gönderilmeyen oyunlar yalnızca cihazda saklanır.
+
+## Kullanım Amaçları
+
+Bu veriler kullanıcı girişini sağlamak, oyun ilerlemesini cihazlar arasında eşitlemek, skor ve seri istatistiklerini göstermek, güvenliği korumak ve çevrimiçi oyun özelliklerini çalıştırmak için kullanılır. Veriler reklam, kullanıcı takibi veya üçüncü taraf pazarlaması amacıyla kullanılmaz.
+
+## Saklama Süresi
+
+Hesap ve özet istatistikler hesap aktif olduğu sürece saklanır. Ayrıntılı oyun sonuçları en fazla 90 gün tutulur; kalıcı istatistikler haftalık ve aylık özetlere aktarılabilir. Bildirim teslim kayıtları en fazla 30 gün tutulur. Kullanıcı uygulamadaki Hesap ekranından hesabını sildiğinde aktif hesaba bağlı profil, oyun ve bildirim cihazı verileri silinir. Hizmet sağlayıcının güvenlik günlükleri veya sınırlı süreli yedekleri kendi saklama süreleri sonunda kaldırılabilir.
+
+## Hizmet Sağlayıcılar
+
+Kimlik doğrulama ve bulut veritabanı için Supabase kullanılır. İsteğe bağlı uzaktan bildirimlerin teslimi için Expo Push Service ve Apple Push Notification service kullanılabilir. Giriş ekranındaki otomatik istek ve bot koruması için Cloudflare Turnstile kullanılır. Turnstile, güvenlik kontrolünü gerçekleştirmek amacıyla ağ ve cihaz/tarayıcı sinyallerini Cloudflare altyapısında işleyebilir. Bu hizmetler uygulamanın çalıştırılması ve güvenliğinin korunması amacıyla kullanılır. Veriler satılmaz, reklam ağlarıyla paylaşılmaz ve geliştirici tarafından kullanıcıları uygulamalar arasında takip etmek için kullanılmaz.
 
 ## Cihazda Saklanan Bilgiler
 
-Uygulama yalnızca oyun deneyimi için skor, seri, rozet ve oyun ilerleme bilgilerini cihazın yerel depolama alanında saklar. Bu bilgiler geliştiriciye veya üçüncü taraflara gönderilmez.
-
-## Üçüncü Taraflarla Paylaşım
-
-Kişisel veri toplanmadığı için üçüncü taraflarla kişisel veri paylaşılmaz.
+Skor, seri, rozet, oyun ilerlemesi, ses ve bildirim tercihi ile oturum bilgileri uygulamanın çalışması için cihazda saklanabilir. Oturum bilgisi güvenli girişin devam etmesini sağlar.
 
 ## Çocukların Gizliliği
 
-Uygulama geniş yaş grubuna uygun sade bir matematik oyunu olarak tasarlanmıştır. Uygulama çocuklardan kişisel bilgi istemez ve toplamaz.
+Oyun misafir olarak kişisel bilgi vermeden kullanılabilir. Geçerli mevzuat kapsamında kendi başına hesap oluşturma yaşının altındaki kullanıcılar hesap oluştururken ebeveyn veya yasal vasi yardımı almalıdır. Bir ebeveyn veya vasi, çocuğa ait olabileceğini düşündüğü hesabın silinmesi için destek adresinden iletişime geçebilir.
+
+## Kullanıcı Hakları ve Hesap Silme
+
+Kullanıcılar uygulamadaki Hesap ekranından hesaplarını ve hesaba bağlı bulut verilerini kalıcı olarak silebilir. Veri veya gizlilik talepleri için aşağıdaki destek adresi kullanılabilir.
 
 ## Değişiklikler
 
-Bu politika uygulama özellikleri değiştikçe güncellenebilir.
+Bu politika uygulama özellikleri veya yasal gereklilikler değiştikçe güncellenebilir. Güncel sürüm bu sayfada yayımlanır.
 
 ## İletişim
 

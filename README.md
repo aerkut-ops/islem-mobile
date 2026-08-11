@@ -106,6 +106,17 @@ npm run check:ios
 
 `expo-doctor` uygulama ve SDK uyumunu kontrol eder. `expo export` ise JavaScript bundle tarafında hızlı bir paketleme kontrolü sağlar.
 
+Yetkili oyuncu bildirimi moderasyonu için ayrı owner hesabını hazırlamak ve
+sunucu erişim sınırlarını doğrulamak amacıyla:
+
+```bash
+npm run provision:moderator
+npm run check:moderation
+```
+
+Owner parolası macOS Anahtar Zinciri'nde tutulur; servis rolü anahtarı kaynak
+koda, `.env` dosyasına veya uygulama paketine yazılmaz.
+
 ## App Store Build
 
 App Store'a gidecek üretim build'i için EAS kullanılır:
@@ -155,7 +166,7 @@ App Store Connect'e girilecek açıklama, anahtar kelime, gizlilik ve ekran gör
 - Görünen uygulama adı: `İşlem`
 - Geçici iOS bundle id: `com.aydin.islem`
 - Geçici Android package: `com.aydin.islem`
-- Uygulama kullanıcı hesabı, reklam veya analitik toplamıyor; yalnızca cihazda en iyi skoru saklıyor.
-- App Store Connect'te privacy label için "veri toplanmıyor" çizgisi uygun görünüyor, ama son beyan yayıncı hesabındaki gerçek SDK ve servis kullanımına göre yapılmalı.
+- v1.1 isteğe bağlı Supabase hesabı, bulut skorları, seri senkronizasyonu ve kullanıcı kontrollü arkadaş bildirimleri ekler; oyun misafir olarak çalışmaya devam eder.
+- v1.1 App Store privacy label beyanında e-posta adresi, kullanıcı kimliği, bildirim cihaz kimliği, oyun içeriği ve diğer kullanıcı içeriği açıklanmalıdır. Reklam ve takip kullanılmaz.
 - `PRIVACY.md` gizlilik politikası taslağıdır; App Store Connect için web'de yayınlanıp URL olarak girilmeli.
 - App Store öncesinde bundle id, ikon, ekran görüntüleri, gizlilik politikası URL'si ve yaş derecelendirmesi netleştirilmeli.
