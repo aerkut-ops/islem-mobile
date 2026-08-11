@@ -72,6 +72,40 @@ matematik,işlem,sayı,bulmaca,zeka,çocuk,eğitim,dört işlem,hedef,puzzle
 
 Her gün yeni bir hedefe ulaş, serini koru ve isteğe bağlı hesabınla skorlarını buluta taşı. İşlem şimdi arkadaşlar, ligler ve bildirimlerle daha zengin.
 
+## English (U.S.) Promotional Text
+
+Reach a new target every day, keep your streak alive, and sync your scores with an optional account. İşlem now includes friends, leagues, and notifications.
+
+## English (U.S.) Description
+
+İşlem is a clean math puzzle where you use the given numbers and four arithmetic operations to reach target values.
+
+Drag one number onto another, then choose addition, subtraction, multiplication, or division from the operation dial. If the result matches a target, that target is completed. Otherwise, the result becomes an intermediate number that can be used in later moves.
+
+Solve a new Daily Game, practice at your preferred difficulty in Training, take on a tougher puzzle in the Weekly Challenge, or learn the rules step by step in the Tutorial.
+
+You can play without an account and continue offline. Create an optional account to sync scores, streaks, badges, and statistics to the cloud, create a profile, add friends, join weekly leagues, and challenge friends.
+
+Features:
+
+- Simple drag-and-drop gameplay
+- Addition, subtraction, multiplication, and division
+- Easy, Medium, Hard, and Master difficulty levels
+- Daily puzzles and streaks
+- A weekly challenge that refreshes every week
+- Hints when you get stuck
+- Badges and detailed statistics
+- Optional account and cloud sync
+- Profiles, friends, weekly leagues, and friend challenges
+- Friend and challenge notifications
+- Player blocking and reporting tools
+- Guest and offline play
+- Turkish and English interface
+- No ads or cross-app tracking
+- iPhone and iPad support
+
+Designed for children, adults, and anyone who enjoys number puzzles. Exercise your mind in short sessions, complete targets, and keep your daily streak alive.
+
 ## v1.1 Sürüm Notları
 
 İşlem 1.1 ile:
