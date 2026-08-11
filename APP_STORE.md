@@ -245,7 +245,7 @@ npm run submit:ios
 - [x] Support sayfasındaki placeholder iletişim metni kaldırıldı
 - [x] Privacy Policy URL HTTPS üzerinden erişilebilir
 - [x] Support URL HTTPS üzerinden erişilebilir
-- [ ] App Store privacy label cevapları uygulamanın mevcut veri kullanımıyla uyumlu
+- [x] App Store privacy label cevapları uygulamanın mevcut veri kullanımıyla uyumlu
 - [x] v1.1 uygulama içinden hesap silme akışı eklendi
 - [x] v1.1 geliştirme ve App Review hesapları oluşturuldu
 - [x] App Review hesabı cihazdaki şifreli giriş ekranıyla test edildi
@@ -259,7 +259,7 @@ npm run submit:ios
 - [x] v1.1 EAS production Supabase, yönlendirme ve Turnstile sayfası değişkenleri tanımlandı
 - [x] Üretim Turnstile widget anahtarı EAS ve Supabase Auth üzerinde etkinleştirildi
 - [x] v1.1 gizlilik sayfası GitHub Pages'a yayımlandı
-- [ ] v1.1 App Store privacy label Email Address, User ID, Device ID, Gameplay Content ve Other User Content olarak güncellendi
+- [x] v1.1 App Store privacy label Email Address, User ID, Device ID, Gameplay Content ve Other User Content olarak güncellendi
 - [ ] iPhone ekran görüntüleri hazır
 - [ ] iPad ekran görüntüleri hazır
 - [ ] Yaş derecelendirmesi dolduruldu
