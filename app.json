@@ -2,7 +2,7 @@
   "expo": {
     "name": "İşlem",
     "slug": "islem",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Verilen sayıları ve işlemleri kullanarak hedef sayılara ulaşmaya çalıştığın sade bir matematik oyunu.",
     "orientation": "portrait",
     "platforms": [

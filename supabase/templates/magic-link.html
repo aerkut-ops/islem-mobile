@@ -35,7 +35,7 @@
                 </p>
 
                 <div style="margin:24px 0;">
-                  <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#1fa7a0;border-radius:8px;color:#ffffff;font-size:16px;font-weight:800;padding:14px 22px;text-decoration:none;">
+                  <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=magiclink" style="display:inline-block;background:#1fa7a0;border-radius:8px;color:#ffffff;font-size:16px;font-weight:800;padding:14px 22px;text-decoration:none;">
                     İşlem'e giriş yap
                   </a>
                 </div>
@@ -48,7 +48,7 @@
                 </p>
 
                 <div style="margin:22px 0 28px;">
-                  <a href="{{ .ConfirmationURL }}" style="display:inline-block;border:2px solid #1fa7a0;border-radius:8px;color:#168b85;font-size:15px;font-weight:800;padding:11px 19px;text-decoration:none;">
+                  <a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&amp;type=magiclink" style="display:inline-block;border:2px solid #1fa7a0;border-radius:8px;color:#168b85;font-size:15px;font-weight:800;padding:11px 19px;text-decoration:none;">
                     Sign in to İşlem
                   </a>
                 </div>

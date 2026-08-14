@@ -433,17 +433,29 @@ const STRINGS = {
       guestText: 'Skorlarını ve serini korumak için e-posta adresinle giriş yap veya ücretsiz hesap oluştur.',
       emailLabel: 'E-posta',
       emailPlaceholder: 'ornek@eposta.com',
-      magicLinkMethod: 'E-posta bağlantısı',
-      passwordMethod: 'Şifre',
-      magicLinkHelp: 'Şifre gerekmez. E-postana gelen güvenli bağlantıya dokunman yeterli.',
+      signInMethod: 'Giriş yap',
+      signUpMethod: 'Hesap oluştur',
       passwordLabel: 'Şifre',
       passwordPlaceholder: 'Şifreni yaz',
-      passwordHelp: 'Daha önce şifre belirlenmiş hesaplar için.',
-      passwordContinue: 'Şifreyle giriş yap',
+      passwordHelp: 'Şifreni unuttuysan e-posta bağlantısıyla da giriş yapabilirsin.',
+      confirmPasswordLabel: 'Şifre tekrarı',
+      confirmPasswordPlaceholder: 'Şifreni tekrar yaz',
+      signUpHelp: 'En az 8 karakter kullan. Onaydan sonra bu şifreyle giriş yapabilirsin.',
+      passwordContinue: 'Giriş yap',
+      signUpContinue: 'Hesap oluştur',
+      magicLinkContinue: 'Şifresiz giriş bağlantısı gönder',
       passwordRequired: 'Şifreni yaz.',
+      passwordTooShort: 'Şifren en az 8 karakter olmalı.',
+      passwordsDoNotMatch: 'Yazdığın şifreler eşleşmiyor.',
       invalidCredentials: 'E-posta adresi veya şifre hatalı.',
-      continue: 'Giriş yap / Hesap oluştur',
-      linkSent: 'Bağlantı gönderildi. E-posta kutunu kontrol et.',
+      accountExists: 'Bu e-posta adresiyle zaten bir hesap var. Giriş yapmayı dene.',
+      linkSent: 'Giriş bağlantısı gönderildi. Yalnızca en son gelen bağlantıyı kullan.',
+      signUpEmailSent: 'Hesabın oluşturuldu. E-postandaki onay bağlantısına dokun; ardından uygulamada oturumun açılacak.',
+      signInComplete: 'Giriş tamamlandı.',
+      signUpComplete: 'E-posta onaylandı ve hesabın açıldı.',
+      signInLinkExpired: 'Bu bağlantı kullanılmış veya süresi dolmuş. Yeni bir bağlantı iste.',
+      signInLinkMismatch: 'Bu bağlantı başka bir giriş isteğine ait. Yalnızca en son gelen bağlantıyı kullan.',
+      signInLinkError: 'Giriş bağlantısı tamamlanamadı. Yeni bir bağlantı iste veya şifrenle giriş yap.',
       emailRateLimit: 'Çok kısa sürede fazla giriş e-postası istendi. Yaklaşık bir saat sonra tekrar dene.',
       invalidEmail: 'Geçerli bir e-posta adresi yaz.',
       genericError: 'İşlem tamamlanamadı. Lütfen tekrar dene.',
@@ -1046,17 +1058,29 @@ const STRINGS = {
       guestText: 'Sign in with your email or create a free account to protect your scores and streak.',
       emailLabel: 'Email',
       emailPlaceholder: 'name@example.com',
-      magicLinkMethod: 'Email link',
-      passwordMethod: 'Password',
-      magicLinkHelp: 'No password needed. Tap the secure link sent to your email.',
+      signInMethod: 'Sign in',
+      signUpMethod: 'Create account',
       passwordLabel: 'Password',
       passwordPlaceholder: 'Enter your password',
-      passwordHelp: 'For accounts that already have a password.',
-      passwordContinue: 'Sign in with password',
+      passwordHelp: 'If you forgot your password, you can also sign in with an email link.',
+      confirmPasswordLabel: 'Confirm password',
+      confirmPasswordPlaceholder: 'Enter your password again',
+      signUpHelp: 'Use at least 8 characters. You can sign in with this password after confirmation.',
+      passwordContinue: 'Sign in',
+      signUpContinue: 'Create account',
+      magicLinkContinue: 'Send a passwordless sign-in link',
       passwordRequired: 'Enter your password.',
+      passwordTooShort: 'Your password must contain at least 8 characters.',
+      passwordsDoNotMatch: 'The passwords do not match.',
       invalidCredentials: 'The email address or password is incorrect.',
-      continue: 'Sign in / Create account',
-      linkSent: 'Link sent. Check your email inbox.',
+      accountExists: 'An account already exists for this email address. Try signing in.',
+      linkSent: 'Sign-in link sent. Use only the most recent link you received.',
+      signUpEmailSent: 'Your account was created. Tap the confirmation link in your email; the app will then sign you in.',
+      signInComplete: 'Sign-in complete.',
+      signUpComplete: 'Your email was confirmed and your account is ready.',
+      signInLinkExpired: 'This link was already used or has expired. Request a new link.',
+      signInLinkMismatch: 'This link belongs to another sign-in request. Use only the most recent link.',
+      signInLinkError: 'The sign-in link could not be completed. Request a new link or sign in with your password.',
       emailRateLimit: 'Too many sign-in emails were requested. Please try again in about an hour.',
       invalidEmail: 'Enter a valid email address.',
       genericError: 'The action could not be completed. Please try again.',
@@ -1491,6 +1515,7 @@ export default function App() {
   const [moderatorRole, setModeratorRole] = useState(null);
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [authFeedback, setAuthFeedback] = useState(null);
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
@@ -1523,6 +1548,7 @@ export default function App() {
   const challengeAutoOpenedRef = useRef(null);
   const challengeLaunchRef = useRef(null);
   const pendingPushActionRef = useRef(null);
+  const processedAuthUrlsRef = useRef(new Set());
   progressRef.current = progress;
   activeUserIdRef.current = session?.user?.id || null;
 
@@ -1985,14 +2011,40 @@ export default function App() {
     });
 
     const processAuthUrl = (url) => {
+      if (!url || processedAuthUrlsRef.current.has(url)) {
+        return;
+      }
+
+      processedAuthUrlsRef.current.add(url);
+      if (processedAuthUrlsRef.current.size > 8) {
+        const [oldestUrl] = processedAuthUrlsRef.current;
+        processedAuthUrlsRef.current.delete(oldestUrl);
+      }
+
       handleAuthCallback(url)
-        .then((nextSession) => {
-          if (active && nextSession) {
-            setSession(nextSession);
+        .then((result) => {
+          if (active && result) {
+            setSession(result.session);
+            setAuthLoading(false);
+            setAuthFeedback({
+              callbackType: result.callbackType,
+              type: 'success',
+            });
+            setAccountVisible(true);
           }
         })
-        .catch(() => {
-          // The account panel remains available for a fresh sign-in attempt.
+        .catch((error) => {
+          if (!active) {
+            return;
+          }
+          setAuthLoading(false);
+          setAuthFeedback({
+            code: error?.code || '',
+            message: error?.message || '',
+            name: error?.name || '',
+            type: 'error',
+          });
+          setAccountVisible(true);
         });
     };
 
@@ -3475,9 +3527,11 @@ export default function App() {
           visible={streakVisible}
         />
         <AccountPanel
+          authFeedback={authFeedback}
           configured={isSupabaseConfigured}
           language={language}
           loading={authLoading}
+          onAuthFeedbackConsumed={() => setAuthFeedback(null)}
           onClose={closeAccount}
           onProfileChange={setProfile}
           onProfileRetry={() => setProfileReloadKey((value) => value + 1)}

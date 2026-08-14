@@ -12,7 +12,12 @@ import {
   View,
 } from 'react-native';
 import { deleteCurrentAccount } from '../services/accountService';
-import { sendMagicLink, signInWithPassword, signOut } from '../services/authService';
+import {
+  sendMagicLink,
+  signInWithPassword,
+  signOut,
+  signUpWithPassword,
+} from '../services/authService';
 import { loadPlayerCloudStats } from '../services/playerCloudData';
 import { updateOwnProfile } from '../services/profileService';
 import TurnstileChallenge, {
@@ -22,10 +27,25 @@ import TurnstileChallenge, {
 
 const PRIVACY_POLICY_URL = 'https://aerkut-ops.github.io/islem-mobile/privacy.html';
 
+function resolveCallbackError(feedback, strings) {
+  const code = feedback?.code || '';
+  const detail = `${feedback?.name || ''} ${feedback?.message || ''}`;
+
+  if (/expired|otp_expired|invalid.*link/i.test(`${code} ${detail}`)) {
+    return strings.signInLinkExpired;
+  }
+  if (/pkce|verifier|flow_state/i.test(`${code} ${detail}`)) {
+    return strings.signInLinkMismatch;
+  }
+  return strings.signInLinkError;
+}
+
 export default function AccountPanel({
+  authFeedback,
   configured,
   language,
   loading,
+  onAuthFeedbackConsumed,
   onClose,
   onProfileChange,
   onProfileRetry,
@@ -38,7 +58,8 @@ export default function AccountPanel({
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loginMethod, setLoginMethod] = useState('link');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [authMode, setAuthMode] = useState('signIn');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -64,13 +85,46 @@ export default function AccountPanel({
       setErrorMessage('');
       setDeleteConfirmVisible(false);
       setPassword('');
-      setLoginMethod('link');
+      setConfirmPassword('');
+      setAuthMode('signIn');
       setProfileBusy(false);
       setProfileEditing(false);
       setProfileMessage('');
       setProfileError('');
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible || !authFeedback) {
+      return;
+    }
+
+    setBusy(false);
+    setCaptchaVisible(false);
+    setPendingAuth(null);
+    if (authFeedback.type === 'success') {
+      setErrorMessage('');
+      setMessage(
+        authFeedback.callbackType === 'signup'
+          ? strings.signUpComplete
+          : strings.signInComplete,
+      );
+    } else {
+      setMessage('');
+      setErrorMessage(resolveCallbackError(authFeedback, strings));
+    }
+    onAuthFeedbackConsumed?.();
+  }, [authFeedback, onAuthFeedbackConsumed, strings, visible]);
+
+  useEffect(() => {
+    if (!session?.user?.id) {
+      return;
+    }
+
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+  }, [session?.user?.id]);
 
   useEffect(() => {
     if (
@@ -145,21 +199,44 @@ export default function AccountPanel({
       if (request.method === 'link') {
         await sendMagicLink(request.email, captchaToken);
         setMessage(strings.linkSent);
+      } else if (request.method === 'signUp') {
+        const data = await signUpWithPassword(
+          request.email,
+          request.password,
+          captchaToken,
+        );
+        setPassword('');
+        setConfirmPassword('');
+        if (data.session) {
+          onClose();
+        } else {
+          setMessage(strings.signUpEmailSent);
+        }
       } else {
         await signInWithPassword(request.email, request.password, captchaToken);
         onClose();
       }
     } catch (error) {
-      if (request.method === 'link') {
+      if (request.method === 'link' || request.method === 'signUp') {
         const rateLimited =
           error?.code === 'over_email_send_rate_limit' ||
           error?.status === 429 ||
           /rate limit/i.test(error?.message || '');
-        setErrorMessage(
-          rateLimited
-            ? strings.emailRateLimit
-            : error?.message || strings.genericError,
-        );
+        const accountExists =
+          error?.code === 'user_already_exists' ||
+          /already (exists|registered)/i.test(error?.message || '');
+        const weakPassword =
+          error?.code === 'weak_password' ||
+          /password.*(weak|short)/i.test(error?.message || '');
+        if (rateLimited) {
+          setErrorMessage(strings.emailRateLimit);
+        } else if (accountExists) {
+          setErrorMessage(strings.accountExists);
+        } else if (weakPassword) {
+          setErrorMessage(strings.passwordTooShort);
+        } else {
+          setErrorMessage(strings.genericError);
+        }
       } else {
         const invalidCredentials =
           error?.code === 'invalid_credentials' ||
@@ -211,10 +288,18 @@ export default function AccountPanel({
       setErrorMessage(strings.passwordRequired);
       return;
     }
+    if (authMode === 'signUp' && password.length < 8) {
+      setErrorMessage(strings.passwordTooShort);
+      return;
+    }
+    if (authMode === 'signUp' && password !== confirmPassword) {
+      setErrorMessage(strings.passwordsDoNotMatch);
+      return;
+    }
 
     startAuthRequest({
       email: normalizedEmail,
-      method: 'password',
+      method: authMode === 'signUp' ? 'signUp' : 'password',
       password,
     });
   };
@@ -380,6 +465,7 @@ export default function AccountPanel({
                 </View>
                 <Text style={styles.centerTitle}>{profileTitle}</Text>
                 <Text numberOfLines={1} style={styles.accountEmail}>{session.user.email}</Text>
+                {message ? <Text style={styles.successText}>{message}</Text> : null}
                 <View style={styles.profileSection}>
                   <View style={styles.profileSectionHeader}>
                     <Text style={styles.profileSectionLabel}>{strings.profile}</Text>
@@ -640,46 +726,47 @@ export default function AccountPanel({
                     accessibilityRole="button"
                     disabled={busy}
                     onPress={() => {
-                      setLoginMethod('link');
+                      setAuthMode('signIn');
+                      setConfirmPassword('');
                       setErrorMessage('');
                       setMessage('');
                     }}
                     style={({ pressed }) => [
                       styles.loginMethodButton,
-                      loginMethod === 'link' && styles.loginMethodButtonActive,
+                      authMode === 'signIn' && styles.loginMethodButtonActive,
                       pressed && styles.pressed,
                     ]}
                   >
                     <Text
                       style={[
                         styles.loginMethodText,
-                        loginMethod === 'link' && styles.loginMethodTextActive,
+                        authMode === 'signIn' && styles.loginMethodTextActive,
                       ]}
                     >
-                      {strings.magicLinkMethod}
+                      {strings.signInMethod}
                     </Text>
                   </Pressable>
                   <Pressable
                     accessibilityRole="button"
                     disabled={busy}
                     onPress={() => {
-                      setLoginMethod('password');
+                      setAuthMode('signUp');
                       setErrorMessage('');
                       setMessage('');
                     }}
                     style={({ pressed }) => [
                       styles.loginMethodButton,
-                      loginMethod === 'password' && styles.loginMethodButtonActive,
+                      authMode === 'signUp' && styles.loginMethodButtonActive,
                       pressed && styles.pressed,
                     ]}
                   >
                     <Text
                       style={[
                         styles.loginMethodText,
-                        loginMethod === 'password' && styles.loginMethodTextActive,
+                        authMode === 'signUp' && styles.loginMethodTextActive,
                       ]}
                     >
-                      {strings.passwordMethod}
+                      {strings.signUpMethod}
                     </Text>
                   </Pressable>
                 </View>
@@ -691,42 +778,60 @@ export default function AccountPanel({
                   editable={!busy}
                   keyboardType="email-address"
                   onChangeText={setEmail}
-                  onSubmitEditing={loginMethod === 'password' ? undefined : submitEmail}
+                  onSubmitEditing={undefined}
                   placeholder={strings.emailPlaceholder}
                   placeholderTextColor="#8a949d"
                   returnKeyType="go"
                   style={styles.input}
                   value={email}
                 />
-                {loginMethod === 'password' ? (
+                <Text style={styles.passwordLabel}>{strings.passwordLabel}</Text>
+                <TextInput
+                  autoCapitalize="none"
+                  autoComplete={authMode === 'signUp' ? 'new-password' : 'current-password'}
+                  autoCorrect={false}
+                  editable={!busy}
+                  onChangeText={setPassword}
+                  onSubmitEditing={authMode === 'signUp' ? undefined : submitPassword}
+                  placeholder={strings.passwordPlaceholder}
+                  placeholderTextColor="#8a949d"
+                  returnKeyType={authMode === 'signUp' ? 'next' : 'go'}
+                  secureTextEntry
+                  style={styles.input}
+                  textContentType={authMode === 'signUp' ? 'newPassword' : 'password'}
+                  value={password}
+                />
+                {authMode === 'signUp' ? (
                   <>
-                    <Text style={styles.passwordLabel}>{strings.passwordLabel}</Text>
+                    <Text style={styles.passwordLabel}>
+                      {strings.confirmPasswordLabel}
+                    </Text>
                     <TextInput
                       autoCapitalize="none"
-                      autoComplete="current-password"
+                      autoComplete="new-password"
                       autoCorrect={false}
                       editable={!busy}
-                      onChangeText={setPassword}
+                      onChangeText={setConfirmPassword}
                       onSubmitEditing={submitPassword}
-                      placeholder={strings.passwordPlaceholder}
+                      placeholder={strings.confirmPasswordPlaceholder}
                       placeholderTextColor="#8a949d"
                       returnKeyType="go"
                       secureTextEntry
                       style={styles.input}
-                      textContentType="password"
-                      value={password}
+                      textContentType="newPassword"
+                      value={confirmPassword}
                     />
-                    <Text style={styles.helperText}>{strings.passwordHelp}</Text>
+                    <Text style={styles.helperText}>{strings.signUpHelp}</Text>
                   </>
                 ) : (
-                  <Text style={styles.helperText}>{strings.magicLinkHelp}</Text>
+                  <Text style={styles.helperText}>{strings.passwordHelp}</Text>
                 )}
                 {message ? <Text style={styles.successText}>{message}</Text> : null}
                 {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
                 <Pressable
                   accessibilityRole="button"
                   disabled={busy}
-                  onPress={loginMethod === 'password' ? submitPassword : submitEmail}
+                  onPress={submitPassword}
                   style={({ pressed }) => [
                     styles.primaryButton,
                     busy && styles.disabled,
@@ -737,10 +842,28 @@ export default function AccountPanel({
                     <ActivityIndicator color="#ffffff" />
                   ) : (
                     <Text style={styles.primaryText}>
-                      {loginMethod === 'password' ? strings.passwordContinue : strings.continue}
+                      {authMode === 'signUp'
+                        ? strings.signUpContinue
+                        : strings.passwordContinue}
                     </Text>
                   )}
                 </Pressable>
+                {authMode === 'signIn' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={busy}
+                    onPress={submitEmail}
+                    style={({ pressed }) => [
+                      styles.passwordlessButton,
+                      busy && styles.disabled,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.passwordlessText}>
+                      {strings.magicLinkContinue}
+                    </Text>
+                  </Pressable>
+                ) : null}
                 <Text style={styles.privacyText}>{strings.privacy}</Text>
                 <Pressable
                   accessibilityLabel={strings.privacyPolicyA11y}
@@ -946,6 +1069,22 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '900',
+  },
+  passwordlessButton: {
+    alignItems: 'center',
+    borderColor: '#d8e2e8',
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: 'center',
+    marginTop: 10,
+    minHeight: 44,
+    paddingHorizontal: 12,
+  },
+  passwordlessText: {
+    color: '#147b76',
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   privacyText: {
     color: '#8a949d',
